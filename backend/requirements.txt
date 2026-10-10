@@ -1,0 +1,35 @@
+# API
+fastapi
+uvicorn[standard]
+
+# Configuration
+python-dotenv
+pydantic-settings
+
+# HTTP
+httpx
+
+# Code / file handling
+pathspec
+chardet
+
+# AI / LLM
+openai
+google-genai
+
+# Embeddings
+sentence-transformers
+
+# Vector database
+chromadb-client
+
+# Utilities
+tiktoken
+
+# Testing
+pytest
+pytest-asyncio
+httpx
+
+mcp<2
+pymongo

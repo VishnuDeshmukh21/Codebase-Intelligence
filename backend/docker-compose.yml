@@ -1,0 +1,17 @@
+services:
+  backend:
+    build: .
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      # Map the HuggingFace cache so models only download once
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - ENVIRONMENT=development
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Declare the persistent volume
+volumes:
+  huggingface_cache:
