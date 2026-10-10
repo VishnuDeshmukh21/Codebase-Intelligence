@@ -42,10 +42,15 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None) -> str:
     return f"Indexed '{repo_root}' under repo_id: '{actual_repo_id}'."
 
 @mcp.tool()
-def search_symbols(query: str, repo_id: str, limit: int = 8) -> str:
-    """Finds entry-point symbols by name, signature, or file path in a specific repository."""
+def search_symbols(query: str, repo_id: str, limit: int = 5) -> str:
+    """
+    Finds entry-point symbols by name, signature, or file path. 
+    CRITICAL: This tool only returns lightweight IDs. Once you find the correct symbol_id, 
+    you MUST use `get_symbol_details`, `get_downstream_dependencies`, or 
+    `get_upstream_blast_radius` to understand its execution flow and implementation.
+    """
     results = graph_tools.search_symbols(query=query, repo_id=repo_id, limit=limit)
-    return json.dumps(results, indent=2)
+    return json.dumps(results, separators=(',', ':'))
 
 @mcp.tool()
 def get_symbol_details(symbol_id: str, repo_id: str) -> str:

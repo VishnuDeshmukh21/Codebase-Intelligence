@@ -8,14 +8,31 @@ class CodeGraphTools:
     def _get_collection(self, repo_id: str):
         return self.db[f"{repo_id}_symbols"]
 
-    def search_symbols(self, query: str, repo_id: str, limit: int = 8) -> List[Dict[str, Any]]:
+    def search_symbols(self, query: str, repo_id: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Finds entry-point symbols by name, signature, or file path in a specific repo collection."""
         col = self._get_collection(repo_id)
         regex = {"$regex": query, "$options": "i"}
+        
+        # Whitelist ONLY essential discovery fields
+        projection = {
+            "_id": 1,
+            "name": 1,
+            "type": 1,
+            "file_path": 1,
+            "signature": 1,
+            "start_line": 1,
+            "end_line": 1
+        }
+        
         cursor = col.find(
-            {"$or": [{"_id": regex}, {"name": regex}, {"file_path": regex}, {"docstring": regex}]},
-            {"source_code": 0, "imports": 0}
+            {"$or": [
+                {"_id": regex},
+                {"name": regex},
+                {"file_path": regex}
+            ]},
+            projection
         ).limit(limit)
+        
         return list(cursor)
 
     def get_symbol_details(self, symbol_id: str, repo_id: str) -> Dict[str, Any]:
