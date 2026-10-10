@@ -40,33 +40,34 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None) -> str:
     indexer = RepoGraphIndexer(repo_path=repo_root, repo_id=actual_repo_id, mongo_uri=db_uri)
     indexer.index_repository()
     return f"Indexed '{repo_root}' under repo_id: '{actual_repo_id}'."
+
 @mcp.tool()
-def search_symbols(repo_id: str, query: str, limit: int = 8) -> str:
-    """Finds entry-point symbols by name or file path within a specific repository."""
-    results = graph_tools.search_symbols(repo_id, query, limit)
+def search_symbols(query: str, repo_id: str, limit: int = 8) -> str:
+    """Finds entry-point symbols by name, signature, or file path in a specific repository."""
+    results = graph_tools.search_symbols(query=query, repo_id=repo_id, limit=limit)
     return json.dumps(results, indent=2)
 
 @mcp.tool()
-def get_symbol_details(repo_id: str, symbol_id: str) -> str:
+def get_symbol_details(symbol_id: str, repo_id: str) -> str:
     """Fetches exact source code and implementation for a symbol in a specific repository."""
-    result = graph_tools.get_symbol_details(repo_id, symbol_id)
+    result = graph_tools.get_symbol_details(symbol_id=symbol_id, repo_id=repo_id)
     return json.dumps(result, indent=2)
 
 @mcp.tool()
-def get_upstream_blast_radius(repo_id: str, symbol_id: str, max_depth: int = 3) -> str:
+def get_upstream_blast_radius(symbol_id: str, repo_id: str, max_depth: int = 3) -> str:
     """
     Reverse Graph Traversal: Finds every function/class in the repo that depends on a symbol.
     CRITICAL: You MUST use this tool whenever a user asks "what gets affected", 
     "what breaks", "what is the impact", or "what relies on" a specific codebase component.
     Do NOT use native file search for impact analysis.
     """
-    result = graph_tools.get_upstream_blast_radius(repo_id, symbol_id, max_depth)
+    result = graph_tools.get_upstream_blast_radius(symbol_id=symbol_id, repo_id=repo_id, max_depth=max_depth)
     return json.dumps(result, indent=2)
 
 @mcp.tool()
-def get_downstream_dependencies(repo_id: str, symbol_id: str, max_depth: int = 2) -> str:
-    """Finds everything a symbol calls downstream within the specified repo."""
-    result = graph_tools.get_downstream_dependencies(repo_id, symbol_id, max_depth)
+def get_downstream_dependencies(symbol_id: str, repo_id: str, max_depth: int = 2) -> str:
+    """Forward Graph Traversal: Finds everything a symbol calls downstream within the specified repo."""
+    result = graph_tools.get_downstream_dependencies(symbol_id=symbol_id, repo_id=repo_id, max_depth=max_depth)
     return json.dumps(result, indent=2)
 
 if __name__ == "__main__":
