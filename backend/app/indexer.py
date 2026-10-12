@@ -6,9 +6,7 @@ from pymongo import MongoClient, UpdateOne
 import re
 
 def sanitize_repo_id(path_or_name: str) -> str:
-    # Extracts the folder name: "C:/Users/.../Codebase-Intelligence" -> "codebase_intelligence"
     name = Path(path_or_name).resolve().name
-    # MongoDB collection names can't contain $, null bytes, or spaces
     clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name).strip('_').lower()
     return clean_name or "default_repo"
 
@@ -20,11 +18,10 @@ class RepoGraphIndexer:
         self.db = self.client[db_name]
         self.symbols_col = self.db[f"{self.repo_id}_symbols"]
         
-        # Pass 1 & 2 state registries
         self.known_symbols: Set[str] = set()
-        self.file_imports: Dict[str, Dict[str, str]] = {}      # {mod_fqn: {local_alias: target_fqn}}
-        self.class_methods: Dict[str, Set[str]] = {}           # {class_fqn: {method_names}}
-        self.file_variable_types: Dict[str, Dict[str, str]] = {} # {mod_fqn: {var_name: class_fqn}}
+        self.file_imports: Dict[str, Dict[str, str]] = {}
+        self.class_methods: Dict[str, Set[str]] = {}
+        self.file_variable_types: Dict[str, Dict[str, str]] = {}
 
     def _file_to_module(self, file_path: Path) -> str:
         rel = file_path.relative_to(self.repo_path).with_suffix("")
@@ -50,7 +47,7 @@ class RepoGraphIndexer:
             except Exception as e:
                 print(f"Skipping {file_path}: {e}")
 
-        print(f"[Pass 2] Extracting resolved call edges with type inference for {len(self.known_symbols)} symbols...")
+        print(f"[Pass 2] Extracting resolved call edges for {len(self.known_symbols)} symbols...")
         bulk_ops = []
         for file_path, (tree, source) in parsed_trees.items():
             docs = self._pass_two_extract(file_path, tree, source)
@@ -67,6 +64,9 @@ class RepoGraphIndexer:
     def _pass_one_discover(self, file_path: Path, tree: ast.AST):
         mod_name = self._file_to_module(file_path)
         self.file_imports[mod_name] = {}
+        
+        # Register the module itself as a known symbol
+        self.known_symbols.add(mod_name)
 
         for node in ast.iter_child_nodes(tree):
             # Track imports: `import x.y as z` or `from x import y as z`
@@ -90,6 +90,14 @@ class RepoGraphIndexer:
                 self.known_symbols.add(fqn)
                 self.file_imports[mod_name][node.name] = fqn
 
+            # Track top-level variables/constants (e.g., mcp = FastMCP())
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        fqn = f"{mod_name}:{target.id}"
+                        self.known_symbols.add(fqn)
+                        self.file_imports[mod_name][target.id] = fqn
+
             # Track classes and their methods
             elif isinstance(node, ast.ClassDef):
                 class_fqn = f"{mod_name}:{node.name}"
@@ -112,6 +120,10 @@ class RepoGraphIndexer:
         # Extract variable assignments and type hints for context scoping
         self._extract_variable_types(tree, mod_name)
 
+        # 1. Create a Root Module Node (captures top-level execution like main.py)
+        docs.append(self._build_module_doc(tree, mod_name, rel_path, lines))
+
+        # 2. Extract Functions and Classes
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 docs.append(self._build_symbol_doc(
@@ -135,6 +147,8 @@ class RepoGraphIndexer:
                     "docstring": ast.get_docstring(node) or "",
                     "source_code": "\n".join(lines[node.lineno - 1 : node.end_lineno]),
                     "calls": method_fqns,
+                    "is_hub": len(method_fqns) > 2,
+                    "out_degree": len(method_fqns),
                     "inherits": [b for b in bases if b],
                     "imports": list(self.file_imports[mod_name].values())
                 })
@@ -146,7 +160,95 @@ class RepoGraphIndexer:
                         docs.append(self._build_symbol_doc(
                             item, method_fqn, "method", mod_name, class_fqn, rel_path, lines
                         ))
+
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        var_fqn = f"{mod_name}:{target.id}"
+                        docs.append({
+                            "_id": var_fqn,
+                            "name": target.id,
+                            "type": "variable",
+                            "file_path": rel_path,
+                            "start_line": node.lineno,
+                            "end_line": node.end_lineno,
+                            "signature": ast.unparse(node).split('\n')[0], # Store the assignment line
+                            "docstring": "",
+                            "source_code": "\n".join(lines[node.lineno - 1 : node.end_lineno]),
+                            "calls": [], # Variables don't have structural children
+                            "is_hub": False,
+                            "out_degree": 0,
+                            "inherits": [],
+                            "imports": []
+                        })
         return docs
+
+    def _build_module_doc(self, tree: ast.AST, mod_name: str, rel_path: str, lines: List[str]) -> Dict:
+        """Parses the top-level execution scope of a file to capture module-level dependencies."""
+        calls = set()
+        local_scope_types = {}
+
+        for node in tree.body:
+            # Skip inner contents of classes and functions, we only want global scope
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Assign) and isinstance(child.value, ast.Call):
+                        func_name = self._extract_call_name(child.value.func)
+                        if func_name:
+                            resolved_type = self._resolve_name(func_name, mod_name, None)
+                            if resolved_type:
+                                for target in child.targets:
+                                    if isinstance(target, ast.Name):
+                                        local_scope_types[target.id] = resolved_type
+                                calls.add(resolved_type)
+                    
+                    elif isinstance(child, ast.Call):
+                        raw_call = self._extract_call_name(child.func)
+                        if raw_call:
+                            parts = raw_call.split('.')
+                            if len(parts) > 1 and parts[0] in local_scope_types:
+                                target_method = f"{local_scope_types[parts[0]]}.{parts[1]}"
+                                if target_method in self.known_symbols:
+                                    calls.add(target_method)
+                                    continue
+                                    
+                            resolved = self._resolve_name(raw_call, mod_name, None)
+                            if resolved:
+                                calls.add(resolved)
+
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                calls.add(f"{mod_name}:{target.id}")
+            
+            # Special case: Catch decorators on top-level functions (e.g., @mcp.tool())
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                for decorator in node.decorator_list:
+                    for child in ast.walk(decorator):
+                        if isinstance(child, ast.Call):
+                            raw_call = self._extract_call_name(child.func)
+                            if raw_call:
+                                resolved = self._resolve_name(raw_call, mod_name, None)
+                                if resolved:
+                                    calls.add(resolved)
+
+        unique_calls = sorted(list(calls))
+        return {
+            "_id": mod_name,
+            "name": mod_name.split('.')[-1],
+            "type": "module",
+            "file_path": rel_path,
+            "start_line": 1,
+            "end_line": len(lines),
+            "signature": f"module {mod_name}",
+            "docstring": ast.get_docstring(tree) or "",
+            "source_code": "\n".join(lines),
+            "calls": unique_calls,
+            "is_hub": len(unique_calls) > 2,
+            "out_degree": len(unique_calls),
+            "inherits": [],
+            "imports": list(self.file_imports[mod_name].values())
+        }
 
     def _extract_variable_types(self, tree: ast.AST, mod_name: str):
         """Scans the AST to build a dictionary mapping local variable names to their Class FQNs."""
@@ -222,8 +324,6 @@ class RepoGraphIndexer:
         signature = f"{prefix} {node.name}({args_str}){ret_str}:"
 
         unique_calls = sorted(list(calls))
-        is_hub = len(unique_calls) > 2
-
         return {
             "_id": fqn,
             "name": node.name,
@@ -235,7 +335,7 @@ class RepoGraphIndexer:
             "docstring": ast.get_docstring(node) or "",
             "source_code": "\n".join(lines[node.lineno - 1 : node.end_lineno]),
             "calls": unique_calls,
-            "is_hub": is_hub,
+            "is_hub": len(unique_calls) > 2,
             "out_degree": len(unique_calls),
             "inherits": [],
             "imports": list(self.file_imports[mod_name].values())
