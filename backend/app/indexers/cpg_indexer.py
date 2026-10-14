@@ -238,6 +238,9 @@ class RepoGraphIndexer:
             "name": mod_name.split('.')[-1],
             "type": "module",
             "file_path": rel_path,
+            "arguments": [],
+            "return_type": "Any",
+            "external_io": self._flag_external_io(tree),
             "start_line": 1,
             "end_line": len(lines),
             "signature": f"module {mod_name}",
@@ -318,29 +321,71 @@ class RepoGraphIndexer:
                     if resolved:
                         calls.add(resolved)
 
-        args_str = ast.unparse(node.args)
-        ret_str = f" -> {ast.unparse(node.returns)}" if getattr(node, "returns", None) else ""
-        prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
-        signature = f"{prefix} {node.name}({args_str}){ret_str}:"
+        # CPG Data Flow: Safely extract arguments
+        arguments = []
+        if hasattr(node, 'args') and hasattr(node.args, 'args'):
+            arguments = [arg.arg for arg in node.args.args]
+
+        # CPG Data Flow: Safely extract return type
+        return_type = "Any"
+        if getattr(node, "returns", None):
+            return_type = self._extract_annotation_name(node.returns) or "Any"
+
+        # Safely parse signature to prevent the ClassDef error
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args_str = ast.unparse(node.args)
+            ret_str = f" -> {ast.unparse(node.returns)}" if getattr(node, "returns", None) else ""
+            prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+            signature = f"{prefix} {node.name}({args_str}){ret_str}:"
+        else:
+            signature = f"class {getattr(node, 'name', 'Unknown')}:" # Fallback for classes
 
         unique_calls = sorted(list(calls))
+        
         return {
             "_id": fqn,
-            "name": node.name,
+            "name": getattr(node, "name", "unknown"),
             "type": sym_type,
             "file_path": rel_path,
-            "start_line": node.lineno,
-            "end_line": node.end_lineno,
+            "start_line": getattr(node, "lineno", 1),
+            "end_line": getattr(node, "end_lineno", 1),
             "signature": signature,
             "docstring": ast.get_docstring(node) or "",
-            "source_code": "\n".join(lines[node.lineno - 1 : node.end_lineno]),
+            "source_code": "\n".join(lines[getattr(node, "lineno", 1) - 1 : getattr(node, "end_lineno", 1)]),
             "calls": unique_calls,
             "is_hub": len(unique_calls) > 2,
             "out_degree": len(unique_calls),
             "inherits": [],
-            "imports": list(self.file_imports[mod_name].values())
+            "imports": list(self.file_imports.get(mod_name, {}).values()),
+            "arguments": arguments,                        # NEW: CPG argument tracking
+            "return_type": return_type,                    # NEW: CPG return type tracking
+            "external_io": self._flag_external_io(node)    # NEW: CPG I/O awareness
         }
 
+    def _flag_external_io(self, node: ast.AST) -> List[str]:
+        """
+        Scans the AST to detect if a function performs network/HTTP or Database/SQL operations.
+        Returns a list of flags, e.g., ["HTTP", "DATABASE"].
+        """
+        io_flags = set()
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                call_name = self._extract_call_name(child.func)
+                if not call_name:
+                    continue
+                
+                call_name_lower = call_name.lower()
+                
+                # Check for HTTP/Network signatures
+                if any(kw in call_name_lower for kw in ['requests.', 'httpx.', 'session.get', 'session.post', 'aiohttp', 'urllib']):
+                    io_flags.add("HTTP")
+                    
+                # Check for Database/SQL signatures
+                if any(kw in call_name_lower for kw in ['.execute', 'cursor.', 'session.query', 'session.commit', 'mongoclient', 'db.', 'pymongo']):
+                    io_flags.add("DATABASE")
+                    
+        return sorted(list(io_flags))
+    
     def _extract_call_name(self, func_node: ast.AST) -> Optional[str]:
         if isinstance(func_node, ast.Name):
             return func_node.id
