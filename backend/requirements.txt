@@ -33,3 +33,6 @@ httpx
 
 mcp<2
 pymongo
+
+google-generativeai
+huggingface_hub
