@@ -2,6 +2,10 @@
 fastapi
 uvicorn[standard]
 
+# Auth — JWT & Password Hashing
+python-jose[cryptography]
+passlib[bcrypt]
+
 # Configuration
 python-dotenv
 pydantic-settings
@@ -35,4 +39,10 @@ mcp<2
 pymongo
 
 google-generativeai
-huggingface_hub
+structlog
+langgraph
+langgraph-checkpoint-mongodb
+python-jose
+
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1

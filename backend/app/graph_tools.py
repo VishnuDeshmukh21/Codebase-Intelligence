@@ -6,7 +6,8 @@ class CodeGraphTools:
         self.db = db
 
     def _get_collection(self, repo_id: str):
-        return self.db[f"{repo_id}_symbols"]
+        clean_repo_id = repo_id.replace("_symbols", "")
+        return self.db[f"{clean_repo_id}_symbols"]
 
     def search_symbols(self, query: str, repo_id: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Finds entry-point symbols by name, signature, or file path in a specific repo collection."""

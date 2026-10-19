@@ -1,17 +1,32 @@
-# app/main.py
-from http.client import HTTPException
 import json
 import os
+import sys
 from typing import Optional
 from unittest import result
-from mcp.server.fastmcp import FastMCP
+
+# Ensure app directory is in sys.path
+sys.path.insert(0, os.path.dirname(__file__))
+
+try:
+    from mcp.server.fastmcp import FastMCP
+except (ModuleNotFoundError, ImportError):
+    try:
+        from mcp.server.mcpserver import MCPServer as FastMCP
+    except Exception:
+        class FastMCP:
+            def __init__(self, *args, **kwargs): pass
+            def tool(self): return lambda fn: fn
+            def run(self): print("MCP server not available in this environment.")
+
 from pymongo import MongoClient
 from graph_tools import CodeGraphTools
-from indexers.cpg_indexer import RepoGraphIndexer, sanitize_repo_id
+from indexers.cpg_indexer import RepoGraphIndexer
+from repo_manager import resolve_repository_source, record_repo_metadata, sanitize_repo_id
 from llm_service.factory import LLMFactory
 from dotenv import load_dotenv
 
 load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 # Initialize the MCP server
 mcp = FastMCP("ProdE_Codebase_Graph")
@@ -94,19 +109,39 @@ def plan_architectural_change(user_query: str, repo_id: str) -> str:
 def index_repository(repo_root: str, repo_id: Optional[str] = None) -> str:
     """
     MANDATORY FIRST STEP: Maps the repository into the AST graph database.
+    Accepts either a public Git repository URL (e.g., https://github.com/owner/repo)
+    or a local filesystem directory path.
     Always execute this before searching or traversing to ensure the graph is up to date.
     DO NOT use native workspace search or file readers.
     """
-    actual_repo_id = repo_id or sanitize_repo_id(repo_root)
+    try:
+        resolved_local_path, actual_repo_id, is_remote, normalized_url, clone_details = resolve_repository_source(
+            repo_path=repo_root,
+            repo_id=repo_id,
+        )
+    except Exception as exc:
+        return f"Failed to prepare repository source '{repo_root}': {exc}"
+
     collection_name = f"{actual_repo_id}_symbols"
     
     # Check if the repository is already indexed by verifying collection existence and document count
     if collection_name in db.list_collection_names() and db[collection_name].estimated_document_count() > 0:
         return f"Repository '{repo_root}' is already indexed under repo_id: '{actual_repo_id}'. Proceed directly to search_symbols."
 
-    indexer = RepoGraphIndexer(repo_path=repo_root, repo_id=actual_repo_id, mongo_uri=db_uri)
+    indexer = RepoGraphIndexer(repo_path=resolved_local_path, repo_id=actual_repo_id, mongo_uri=db_uri)
     indexer.index_repository()
-    return f"Successfully indexed '{repo_root}' under repo_id: '{actual_repo_id}'. You can now search symbols."
+    count = db[collection_name].estimated_document_count()
+    record_repo_metadata(
+        db=db,
+        repo_id=actual_repo_id,
+        repo_path=resolved_local_path,
+        repo_url=normalized_url,
+        is_remote=is_remote,
+        symbol_count=count,
+        branch=clone_details.get("branch"),
+        commit_hash=clone_details.get("commit_hash"),
+    )
+    return f"Successfully indexed '{repo_root}' ({count} symbols) under repo_id: '{actual_repo_id}'. You can now search symbols."
 
 @mcp.tool()
 def search_symbols(query: str, repo_id: str, limit: int = 5) -> str:
@@ -223,6 +258,9 @@ def find_files_by_name(pattern: str, repo_id: str) -> str:
     results = col.distinct("file_path", {"file_path": {"$regex": mongo_regex, "$options": "i"}})
     
     return "\n".join(results) if results else "No files found in the database index."
+
+# Expose FastAPI application instance for Uvicorn
+from app.server import app
 
 if __name__ == "__main__":
     mcp.run()

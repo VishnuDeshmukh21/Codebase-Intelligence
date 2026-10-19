@@ -10,7 +10,9 @@ services:
       - huggingface_cache:/root/.cache/huggingface
     environment:
       - ENVIRONMENT=development
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - ./app/.env
+    command: uvicorn app.server:app --host 0.0.0.0 --port 8000 --reload
 
 # Declare the persistent volume
 volumes:

@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codebase Intelligence Agent Cockpit</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            },
+            surface: {
+              base: '#090d16',
+              card: '#0f172a',
+              cardHover: '#131e36',
+              border: '#1e293b',
+              accentBorder: '#334155',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Marked Markdown & Highlight.js -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <style>
+    body {
+      background-color: #090d16;
+      color: #f1f5f9;
+      font-family: 'Inter', sans-serif;
+    }
+    pre code.hljs {
+      padding: 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.85rem;
+      background: #0d1322 !important;
+    }
+    .markdown-body {
+      line-height: 1.65;
+    }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+      color: #f8fafc;
+      font-weight: 700;
+      margin-top: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .markdown-body h1 { font-size: 1.5rem; border-bottom: 1px solid #1e293b; padding-bottom: 0.5rem; }
+    .markdown-body h2 { font-size: 1.25rem; }
+    .markdown-body h3 { font-size: 1.1rem; }
+    .markdown-body p { margin-bottom: 0.75rem; color: #cbd5e1; }
+    .markdown-body ul, .markdown-body ol { margin-left: 1.25rem; margin-bottom: 0.75rem; color: #cbd5e1; }
+    .markdown-body li { margin-bottom: 0.25rem; }
+    .markdown-body code:not(pre code) {
+      background: #1e293b;
+      color: #a5b4fc;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+      font-size: 0.85em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+    .markdown-body th, .markdown-body td {
+      border: 1px solid #1e293b;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    .markdown-body th { background: #0f172a; color: #e2e8f0; }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #090d16;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+    .pulse-dot {
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-slate-100">
+
+  <!-- Authentication View (Shown on / when unauthenticated) -->
+  <div id="authView" class="fixed inset-0 z-40 bg-surface-base flex flex-col items-center justify-center p-4 overflow-y-auto">
+    <!-- Ambient glow -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+      <div class="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl"></div>
+      <div class="absolute -bottom-40 -right-40 w-96 h-96 bg-cyan-600/15 rounded-full blur-3xl"></div>
+    </div>
+
+    <div class="w-full max-w-md bg-surface-card border border-surface-border rounded-2xl p-6 sm:p-8 shadow-2xl relative z-10 backdrop-blur-xl">
+      <!-- Brand Logo & Header -->
+      <div class="text-center mb-6">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 mx-auto mb-3">
+          <i data-lucide="network" class="w-6 h-6 text-white"></i>
+        </div>
+        <h1 class="text-lg font-bold text-white tracking-wide">Codebase Intelligence</h1>
+        <p class="text-xs text-slate-400 mt-1">Autonomous AST Planning Agent & Graph Engine</p>
+      </div>
+
+      <!-- Auth Error / Info Alert -->
+      <div id="authAlert" class="hidden mb-4 p-3 rounded-xl text-xs flex items-center gap-2.5">
+        <i id="authAlertIcon" data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+        <span id="authAlertText" class="flex-1 text-[11px] leading-relaxed"></span>
+      </div>
+
+      <!-- Tab Buttons -->
+      <div class="flex p-1 bg-surface-base rounded-xl border border-surface-border mb-6">
+        <button id="loginTabBtn" type="button" onclick="switchAuthTab('login')" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition">
+          Sign In
+        </button>
+        <button id="registerTabBtn" type="button" onclick="switchAuthTab('register')" class="flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition">
+          Create Account
+        </button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+          <div class="relative">
+            <i data-lucide="mail" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input id="loginEmail" type="email" required placeholder="developer@example.com" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
+          <div class="relative">
+            <i data-lucide="lock" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input id="loginPassword" type="password" required placeholder="••••••••" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+          </div>
+        </div>
+
+        <button id="loginSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 font-semibold text-xs text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-50">
+          <span id="loginSubmitText">Sign In to Cockpit</span>
+          <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="registerForm" onsubmit="handleRegisterSubmit(event)" class="space-y-4 hidden">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Full Name</label>
+          <div class="relative">
+            <i data-lucide="user" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input id="registerName" type="text" required placeholder="e.g. Krishna Deshmukh" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+          </div>
+          <p class="text-[10px] text-slate-500 mt-1">Recognized names unlock VIP status and remove rate limits.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+          <div class="relative">
+            <i data-lucide="mail" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input id="registerEmail" type="email" required placeholder="developer@example.com" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Password (min 6 characters)</label>
+          <div class="relative">
+            <i data-lucide="lock" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input id="registerPassword" type="password" minlength="6" required placeholder="••••••••" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+          </div>
+        </div>
+
+        <button id="registerSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 font-semibold text-xs text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-50">
+          <span id="registerSubmitText">Create Account & Continue</span>
+          <i data-lucide="sparkles" class="w-4 h-4"></i>
+        </button>
+      </form>
+
+      <!-- VIP Perks Box
+      <div id="vipBannerSection" class="hidden mt-6 pt-4 border-t border-surface-border/60">
+        <div class="flex items-center gap-1.5 text-[11px] font-semibold text-amber-300 mb-1.5">
+          <span>✨</span> VIP Access & Special Perks
+        </div>
+        <p class="text-[11px] text-slate-400 mb-2">Recognized VIP users enjoy unlimited message quotas and priority execution. Click a name to prefill:</p>
+        <div id="vipUsersList" class="flex flex-wrap gap-1.5"></div>
+      </div> -->
+
+      <!-- Auth View Footer Meta -->
+      <div class="mt-5 pt-3 border-t border-surface-border/40 flex items-center justify-between text-[11px] text-slate-400">
+        <div class="flex items-center gap-1.5">
+          <div id="authStatusDot" class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
+          <span id="authStatusText">Server: Checking...</span>
+        </div>
+        <button type="button" onclick="toggleServerConfig()" class="hover:text-indigo-400 transition flex items-center gap-1">
+          <i data-lucide="settings" class="w-3 h-3"></i> Backend Host
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Cockpit Application View (Hidden until authenticated) -->
+  <div id="appView" class="h-screen flex flex-col overflow-hidden hidden">
+    <!-- Top Navigation Header -->
+    <header class="h-14 border-b border-surface-border bg-surface-card/60 backdrop-blur-md flex items-center justify-between px-5 shrink-0 z-30">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <i data-lucide="network" class="w-4 h-4 text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-sm font-semibold tracking-wide text-white flex items-center gap-2">
+            Codebase Intelligence
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">LangGraph Agent</span>
+          </h1>
+        </div>
+      </div>
+
+      <!-- Center/Right Meta -->
+      <div class="flex items-center gap-3 text-xs">
+        <!-- User Profile Pill -->
+        <div class="flex items-center gap-2 bg-surface-base px-3 py-1.5 rounded-full border border-surface-border">
+          <div class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-300 flex items-center justify-center text-[10px] font-bold">
+            <i data-lucide="user" class="w-3 h-3"></i>
+          </div>
+          <span id="userDisplayName" class="text-slate-200 font-medium text-xs max-w-[140px] truncate">User</span>
+          <span id="userVipBadge" class="hidden bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded-full text-[9px] font-semibold items-center gap-0.5">
+            <span>👑</span> VIP
+          </span>
+          <button onclick="handleLogout()" class="text-slate-400 hover:text-red-400 transition ml-1 p-0.5" title="Sign Out">
+            <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- API Server Indicator -->
+        <div class="hidden sm:flex items-center gap-2 bg-surface-base px-3 py-1.5 rounded-full border border-surface-border">
+          <div id="statusDot" class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
+          <span id="statusText" class="text-slate-300 font-mono text-[11px]">Server: Checking...</span>
+        </div>
+
+        <!-- Settings / Server Host Modal button -->
+        <button onclick="toggleServerConfig()" class="text-slate-400 hover:text-slate-200 transition p-1.5 rounded-lg hover:bg-surface-border" title="Configure Server URL">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </header>
+
+  <!-- Server Config Modal (Hidden by default) -->
+  <div id="serverConfigModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-surface-card border border-surface-border rounded-xl w-full max-w-md p-5 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-sm font-semibold text-white flex items-center gap-2">
+          <i data-lucide="server" class="w-4 h-4 text-indigo-400"></i> Server Connection
+        </h3>
+        <button onclick="toggleServerConfig()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <p class="text-xs text-slate-400 mb-3">If running locally or deployed on GCP Cloud Run, enter the backend origin URL:</p>
+      <input id="serverBaseUrlInput" type="text" placeholder="http://localhost:8000" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500 mb-4">
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleServerConfig()" class="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:bg-surface-border">Cancel</button>
+        <button onclick="saveServerConfig()" class="px-4 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 font-medium text-white">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div class="flex-1 flex overflow-hidden">
+    
+    <!-- Left Sidebar: Repositories & Indexer -->
+    <aside class="w-80 border-r border-surface-border bg-surface-base/80 flex flex-col shrink-0">
+      
+      <!-- Repo Selector Card -->
+      <div class="p-4 border-b border-surface-border">
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-indigo-400"></i> Active Codebase
+          </label>
+          <button onclick="loadRepositories()" class="text-slate-400 hover:text-indigo-400 text-xs transition" title="Refresh repositories">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+          </button>
+        </div>
+
+        <select id="repoSelect" class="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500">
+          <option value="">Loading indexed repos...</option>
+        </select>
+        <div id="repoMeta" class="mt-2 text-[11px] text-slate-400 font-mono flex items-center justify-between">
+          <span>Symbols: <span id="symbolCount" class="text-indigo-400 font-semibold">--</span></span>
+          <span class="text-emerald-400 flex items-center gap-1">● AST Synced</span>
+        </div>
+      </div>
+
+      <!-- Accordion: Index New Repository -->
+      <div class="border-b border-surface-border">
+        <button onclick="toggleIndexAccordion()" class="w-full px-4 py-3 flex items-center justify-between text-xs font-medium text-slate-300 hover:bg-surface-card/40 transition">
+          <span class="flex items-center gap-2">
+            <i data-lucide="folder-git-2" class="w-4 h-4 text-cyan-400"></i> Index New Repository
+          </span>
+          <i id="indexChevron" data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform"></i>
+        </button>
+
+        <div id="indexFormPanel" class="hidden p-4 bg-surface-card/30 space-y-3 text-xs border-t border-surface-border/50">
+          <div>
+            <label class="block text-[11px] text-slate-400 mb-1">Public Git URL or Local Path</label>
+            <input id="indexRepoPath" type="text" placeholder="https://github.com/pallets/flask or /local/path" oninput="autoDeriveRepoId(this.value)" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
+            <p class="text-[10px] text-slate-500 mt-1">Accepts any public GitHub/GitLab URL or local filesystem path.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Repo ID (Alias)</label>
+              <input id="indexRepoId" type="text" placeholder="e.g. pallets_flask" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Branch <span class="text-slate-500">(Optional)</span></label>
+              <input id="indexRepoBranch" type="text" placeholder="default branch" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
+            </div>
+          </div>
+          <button id="startIndexBtn" onclick="startIndexing()" class="w-full py-2 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-lg font-medium transition flex items-center justify-center gap-2 shadow-md">
+            <i data-lucide="scan" class="w-3.5 h-3.5"></i> Clone & Index Repository
+          </button>
+          <div id="indexStatus" class="hidden text-[11px] p-2 rounded bg-surface-base border border-surface-border"></div>
+        </div>
+      </div>
+
+      <!-- Execution Overview / History Summary -->
+      <div class="flex-1 overflow-y-auto p-4 custom-scrollbar">
+        <h3 class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <i data-lucide="activity" class="w-3.5 h-3.5 text-brand-400"></i> Execution State
+        </h3>
+
+        <div class="space-y-2.5 text-xs">
+          <div class="bg-surface-card p-3 rounded-lg border border-surface-border">
+            <span class="text-slate-400 text-[10px] uppercase font-semibold">Active Thread</span>
+            <div id="activeThreadDisplay" class="font-mono text-slate-300 text-[11px] truncate mt-1">None</div>
+          </div>
+
+          <div class="bg-surface-card p-3 rounded-lg border border-surface-border">
+            <span class="text-slate-400 text-[10px] uppercase font-semibold">Agent Status</span>
+            <div id="agentStatusBadge" class="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Idle
+            </div>
+          </div>
+
+          <div class="bg-surface-card p-3 rounded-lg border border-surface-border">
+            <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+              <span>Interactive HITL</span>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input id="interactiveToggle" type="checkbox" checked class="sr-only peer">
+                <div class="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+            <p class="text-[10px] text-slate-500">Pauses before final spec generation for your human approval & feedback.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Footer -->
+      <div class="p-3 border-t border-surface-border text-center">
+        <button onclick="clearChat()" class="text-xs text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1.5 w-full py-1.5 rounded hover:bg-surface-card">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear Conversation
+        </button>
+      </div>
+    </aside>
+
+    <!-- Right Workspace: Interactive Agent Feed -->
+    <main class="flex-1 flex flex-col bg-surface-base overflow-hidden">
+      
+      <!-- Chat & Stream Timeline Feed -->
+      <div id="chatFeed" class="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
+
+        <!-- Welcome Banner -->
+        <div id="welcomeCard" class="max-w-2xl mx-auto my-10 p-6 rounded-2xl bg-gradient-to-b from-surface-card to-surface-base border border-surface-border shadow-xl text-center">
+          <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mx-auto flex items-center justify-center mb-4 shadow-inner">
+            <i data-lucide="sparkles" class="w-6 h-6"></i>
+          </div>
+          <h2 class="text-lg font-semibold text-white mb-2">Codebase Planning & Architecture Agent</h2>
+          <p class="text-xs text-slate-400 leading-relaxed max-w-lg mx-auto mb-5">
+            Query deep programmatic relationships across your Python AST graph. The agent decomposes your request into deterministic graph queries, checks blast radius, reflects on results, and asks for your review before authoring architectural specs.
+          </p>
+
+          <div class="grid grid-cols-2 gap-2 text-left text-xs max-w-md mx-auto">
+            <div class="p-2.5 rounded-lg bg-surface-card/60 border border-surface-border hover:border-indigo-500/40 cursor-pointer transition" onclick="useSamplePrompt(this.innerText)">
+              <span class="text-indigo-400 font-semibold block mb-0.5">Blast Radius</span>
+              <span class="text-slate-400 text-[11px]">What will break if we refactor CodeGraphTools into a separate service?</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-surface-card/60 border border-surface-border hover:border-indigo-500/40 cursor-pointer transition" onclick="useSamplePrompt(this.innerText)">
+              <span class="text-cyan-400 font-semibold block mb-0.5">Dependency Tracing</span>
+              <span class="text-slate-400 text-[11px]">What does the index_repository function call and depend on?</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Human-in-the-Loop Review Banner (Floating Action Gate) -->
+      <div id="hitlGateContainer" class="hidden px-5 py-3 bg-slate-900/95 border-t-2 border-amber-500/60 backdrop-blur-md shadow-2xl transition-all z-20">
+        <div class="max-w-4xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400 mt-0.5">
+              <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h4 class="text-xs font-bold text-amber-200 uppercase tracking-wide">Human Approval Required</h4>
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <button type="button" onclick="scrollToReviewCard()" class="text-[11px] text-amber-400 hover:text-amber-300 underline font-medium ml-1">
+                  View Review Card ↑
+                </button>
+              </div>
+              <p id="hitlPromptText" class="text-[11px] text-slate-300 mt-0.5 line-clamp-1">Analysis complete. Review the plan above or approve to author final specification.</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+            <input id="hitlFeedbackInput" type="text" placeholder="Optional revision guidance..." oninput="syncFeedbackInputs(this.value)" class="bg-surface-base border border-surface-border rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 w-full md:w-60 font-sans shadow-inner">
+            
+            <button onclick="submitReviewFeedback('approve')" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 shadow-md shadow-emerald-950/40 shrink-0 cursor-pointer transition">
+              <i data-lucide="check" class="w-3.5 h-3.5"></i> Approve
+            </button>
+            <button onclick="submitReviewFeedback('revise')" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer transition">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Revise
+            </button>
+            <button onclick="submitReviewFeedback('stop')" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-950/30 shrink-0 cursor-pointer transition" title="Abort Session">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Query Input Bar -->
+      <div class="p-4 border-t border-surface-border bg-surface-card/60 backdrop-blur-md">
+        <form id="chatForm" onsubmit="handleChatSubmit(event)" class="max-w-4xl mx-auto flex items-end gap-3">
+          <div class="flex-1 bg-surface-base border border-surface-border rounded-xl p-2.5 focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20 transition shadow-inner">
+            <textarea id="taskInput" rows="2" placeholder="Ask anything about the codebase architecture (e.g. impact analysis, blast radius, refactoring plan)..." class="w-full bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none resize-none font-sans custom-scrollbar" onkeydown="handleKeyDown(event)"></textarea>
+            
+            <div class="flex justify-between items-center pt-2 text-[11px] text-slate-500 border-t border-surface-border/40 mt-1">
+              <span class="flex items-center gap-1">
+                <i data-lucide="corner-down-left" class="w-3 h-3"></i> Press <kbd class="px-1 py-0.5 rounded bg-surface-border text-slate-300 text-[10px]">Ctrl + Enter</kbd> to run
+              </span>
+              <span id="activeRepoTag" class="text-indigo-400 font-mono text-[10px]">No repo selected</span>
+            </div>
+          </div>
+
+          <button id="sendBtn" type="submit" class="h-11 px-5 rounded-xl bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 font-medium text-xs text-white flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+            <span id="sendBtnText">Run Plan</span>
+            <i id="sendBtnIcon" data-lucide="arrow-up" class="w-4 h-4"></i>
+          </button>
+        </form>
+      </div>
+
+    </main>
+  </div>
+  </div> <!-- /#appView -->
+
+  <!-- JavaScript Logic -->
+  <script>
+    // Configuration & State
+    let API_BASE_URL = localStorage.getItem("CODEBASE_AGENT_API_URL") || window.location.origin;
+    if (API_BASE_URL.startsWith("file://") || !API_BASE_URL.startsWith("http")) {
+      API_BASE_URL = "http://localhost:8000";
+    }
+
+    let activeThreadId = null;
+    let isRunning = false;
+    let isAwaitingHuman = false;
+
+    // Elements
+    const chatFeed = document.getElementById("chatFeed");
+    const taskInput = document.getElementById("taskInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const sendBtnText = document.getElementById("sendBtnText");
+    const sendBtnIcon = document.getElementById("sendBtnIcon");
+    const repoSelect = document.getElementById("repoSelect");
+    const symbolCount = document.getElementById("symbolCount");
+    const activeRepoTag = document.getElementById("activeRepoTag");
+    const activeThreadDisplay = document.getElementById("activeThreadDisplay");
+    const agentStatusBadge = document.getElementById("agentStatusBadge");
+    const hitlGateContainer = document.getElementById("hitlGateContainer");
+    const hitlPromptText = document.getElementById("hitlPromptText");
+    const hitlFeedbackInput = document.getElementById("hitlFeedbackInput");
+    const interactiveToggle = document.getElementById("interactiveToggle");
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+
+    // -------------------------------------------------------------
+    // Authentication Helpers & View Switcher
+    // -------------------------------------------------------------
+    function getAuthToken() {
+      return localStorage.getItem("CODEBASE_AGENT_TOKEN") || "";
+    }
+
+    function getCurrentUser() {
+      try {
+        const raw = localStorage.getItem("CODEBASE_AGENT_USER");
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function setAuth(token, user) {
+      if (token) localStorage.setItem("CODEBASE_AGENT_TOKEN", token);
+      if (user) localStorage.setItem("CODEBASE_AGENT_USER", JSON.stringify(user));
+    }
+
+    function clearAuth() {
+      localStorage.removeItem("CODEBASE_AGENT_TOKEN");
+      localStorage.removeItem("CODEBASE_AGENT_USER");
+    }
+
+    function showAuthView(message = "", type = "info") {
+      const authView = document.getElementById("authView");
+      const appView = document.getElementById("appView");
+      if (authView) authView.classList.remove("hidden");
+      if (appView) appView.classList.add("hidden");
+
+      if (message) {
+        showAuthAlert(message, type);
+      } else {
+        hideAuthAlert();
+      }
+      loadVipUsers();
+      lucide.createIcons();
+    }
+
+    function showAppView(user) {
+      const authView = document.getElementById("authView");
+      const appView = document.getElementById("appView");
+      if (authView) authView.classList.add("hidden");
+      if (appView) appView.classList.remove("hidden");
+
+      if (user) {
+        updateUserHeader(user);
+      }
+      lucide.createIcons();
+    }
+
+    function updateUserHeader(user) {
+      const nameEl = document.getElementById("userDisplayName");
+      const vipBadge = document.getElementById("userVipBadge");
+      if (nameEl) nameEl.innerText = user.name || user.email || "User";
+      if (vipBadge) {
+        if (user.is_vip) {
+          vipBadge.classList.remove("hidden");
+          vipBadge.classList.add("flex");
+        } else {
+          vipBadge.classList.add("hidden");
+          vipBadge.classList.remove("flex");
+        }
+      }
+    }
+
+    function switchAuthTab(tab) {
+      const loginTabBtn = document.getElementById("loginTabBtn");
+      const registerTabBtn = document.getElementById("registerTabBtn");
+      const loginForm = document.getElementById("loginForm");
+      const registerForm = document.getElementById("registerForm");
+      hideAuthAlert();
+
+      if (tab === "register") {
+        registerTabBtn.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition";
+        loginTabBtn.className = "flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition";
+        loginForm.classList.add("hidden");
+        registerForm.classList.remove("hidden");
+      } else {
+        loginTabBtn.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition";
+        registerTabBtn.className = "flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition";
+        registerForm.classList.add("hidden");
+        loginForm.classList.remove("hidden");
+      }
+      lucide.createIcons();
+    }
+
+    function showAuthAlert(message, type = "error") {
+      const alertEl = document.getElementById("authAlert");
+      const alertIcon = document.getElementById("authAlertIcon");
+      const alertText = document.getElementById("authAlertText");
+      if (!alertEl || !alertText) return;
+
+      alertText.innerText = message;
+      alertEl.classList.remove("hidden");
+      if (type === "error") {
+        alertEl.className = "mb-4 p-3 rounded-xl bg-red-950/50 border border-red-500/40 text-red-200 text-xs flex items-center gap-2.5";
+        alertIcon.setAttribute("data-lucide", "alert-triangle");
+        alertIcon.className = "w-4 h-4 text-red-400 shrink-0";
+      } else {
+        alertEl.className = "mb-4 p-3 rounded-xl bg-indigo-950/50 border border-indigo-500/40 text-indigo-200 text-xs flex items-center gap-2.5";
+        alertIcon.setAttribute("data-lucide", "info");
+        alertIcon.className = "w-4 h-4 text-indigo-400 shrink-0";
+      }
+      lucide.createIcons();
+    }
+
+    function hideAuthAlert() {
+      const alertEl = document.getElementById("authAlert");
+      if (alertEl) alertEl.classList.add("hidden");
+    }
+
+    async function loadVipUsers() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/vip-users`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const container = document.getElementById("vipUsersList");
+        const bannerSection = document.getElementById("vipBannerSection");
+        if (data.vip_names && data.vip_names.length > 0 && container) {
+          container.innerHTML = data.vip_names.map(name => `
+            <button type="button" onclick="quickFillVipName('${escapeHtml(name)}')" class="px-2 py-0.5 rounded-full text-[11px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition flex items-center gap-1" title="Click to fill name in Sign Up">
+              <span>👑</span> ${escapeHtml(name)}
+            </button>
+          `).join("");
+          if (bannerSection) bannerSection.classList.remove("hidden");
+        }
+      } catch (e) {
+        // Non-blocking
+      }
+    }
+
+    function quickFillVipName(name) {
+      switchAuthTab('register');
+      const nameInput = document.getElementById("registerName");
+      if (nameInput) {
+        nameInput.value = name;
+        nameInput.focus();
+      }
+    }
+
+    async function handleLoginSubmit(event) {
+      event.preventDefault();
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const btn = document.getElementById("loginSubmitBtn");
+      const btnText = document.getElementById("loginSubmitText");
+
+      if (!email || !password) {
+        showAuthAlert("Please enter both email and password.", "error");
+        return;
+      }
+
+      btn.disabled = true;
+      btnText.innerText = "Signing in...";
+      hideAuthAlert();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Invalid email or password.");
+        }
+
+        setAuth(data.token, data.user);
+        showAppView(data.user);
+        await loadRepositories();
+      } catch (err) {
+        showAuthAlert(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btnText.innerText = "Sign In to Cockpit";
+        lucide.createIcons();
+      }
+    }
+
+    async function handleRegisterSubmit(event) {
+      event.preventDefault();
+      const name = document.getElementById("registerName").value.trim();
+      const email = document.getElementById("registerEmail").value.trim();
+      const password = document.getElementById("registerPassword").value;
+      const btn = document.getElementById("registerSubmitBtn");
+      const btnText = document.getElementById("registerSubmitText");
+
+      if (!name || !email || !password) {
+        showAuthAlert("Please fill in all fields.", "error");
+        return;
+      }
+      if (password.length < 6) {
+        showAuthAlert("Password must be at least 6 characters long.", "error");
+        return;
+      }
+
+      btn.disabled = true;
+      btnText.innerText = "Creating account...";
+      hideAuthAlert();
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, password })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Registration failed. Try again.");
+        }
+
+        setAuth(data.token, data.user);
+        showAppView(data.user);
+        await loadRepositories();
+      } catch (err) {
+        showAuthAlert(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btnText.innerText = "Create Account & Continue";
+        lucide.createIcons();
+      }
+    }
+
+    function handleLogout(message = "You have signed out successfully.") {
+      clearAuth();
+      showAuthView(message, "info");
+    }
+
+    async function authFetch(url, options = {}) {
+      const token = getAuthToken();
+      const headers = Object.assign({}, options.headers || {});
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      options.headers = headers;
+
+      const res = await fetch(url, options);
+      if (res.status === 401) {
+        handleLogout("Session expired. Please sign in again.");
+        throw new Error("Authentication session expired (401).");
+      }
+      return res;
+    }
+
+    // Init
+    window.addEventListener("DOMContentLoaded", async () => {
+      lucide.createIcons();
+      checkServerHealth();
+      document.getElementById("serverBaseUrlInput").value = API_BASE_URL;
+
+      repoSelect.addEventListener("change", () => {
+        const selected = repoSelect.options[repoSelect.selectedIndex];
+        const count = selected.getAttribute("data-count") || "--";
+        symbolCount.innerText = count;
+        activeRepoTag.innerText = repoSelect.value || "No repo selected";
+      });
+
+      const token = getAuthToken();
+      if (!token) {
+        showAuthView();
+        return;
+      }
+
+      // Validate existing session token with /api/auth/me
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const user = await res.json();
+          setAuth(token, user);
+          showAppView(user);
+          loadRepositories();
+        } else {
+          clearAuth();
+          showAuthView("Your session has expired. Please sign in again.", "info");
+        }
+      } catch (err) {
+        // Network or server error: show auth view
+        showAuthView("Server unreachable. Please check connection and sign in.", "error");
+      }
+    });
+
+    // -------------------------------------------------------------
+    // Server Health & Repositories
+    // -------------------------------------------------------------
+    async function checkServerHealth() {
+      const dots = [document.getElementById("statusDot"), document.getElementById("authStatusDot")];
+      const texts = [document.getElementById("statusText"), document.getElementById("authStatusText")];
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/health`);
+        if (res.ok) {
+          const data = await res.json();
+          dots.forEach(d => { if (d) d.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-dot"; });
+          texts.forEach(t => { if (t) t.innerText = "Server: Online (MongoDB Connected)"; });
+        } else {
+          throw new Error();
+        }
+      } catch (err) {
+        dots.forEach(d => { if (d) d.className = "w-2 h-2 rounded-full bg-red-500"; });
+        texts.forEach(t => { if (t) t.innerText = "Server: Offline / Connecting..."; });
+      }
+    }
+
+    async function loadRepositories() {
+      try {
+        const res = await authFetch(`${API_BASE_URL}/api/repos`);
+        if (!res.ok) return;
+        const data = await res.json();
+        repoSelect.innerHTML = "";
+
+        if (data.repositories && data.repositories.length > 0) {
+          data.repositories.forEach((r, idx) => {
+            const opt = document.createElement("option");
+            opt.value = r.repo_id;
+            const icon = r.is_remote ? "🌐 " : "📁 ";
+            opt.innerText = `${icon}${r.repo_id} (${r.symbol_count} symbols)`;
+            opt.setAttribute("data-count", r.symbol_count);
+            opt.setAttribute("data-remote", r.is_remote ? "true" : "false");
+            opt.setAttribute("data-url", r.repo_url || "");
+            if (idx === 0) opt.selected = true;
+            repoSelect.appendChild(opt);
+          });
+          const first = data.repositories[0];
+          symbolCount.innerText = first.symbol_count;
+          activeRepoTag.innerText = first.repo_id;
+        } else {
+          repoSelect.innerHTML = `<option value="">No repos found. Index one below.</option>`;
+          symbolCount.innerText = "0";
+          activeRepoTag.innerText = "No repo selected";
+        }
+      } catch (err) {
+        if (!err.message?.includes("401")) {
+          repoSelect.innerHTML = `<option value="">Could not load repos</option>`;
+        }
+      }
+    }
+
+
+    // -------------------------------------------------------------
+    // Repository Indexer & Auto-Derivation
+    // -------------------------------------------------------------
+    function toggleIndexAccordion() {
+      const panel = document.getElementById("indexFormPanel");
+      const chevron = document.getElementById("indexChevron");
+      panel.classList.toggle("hidden");
+      chevron.classList.toggle("rotate-180");
+    }
+
+    function autoDeriveRepoId(val) {
+      const repoIdInput = document.getElementById("indexRepoId");
+      if (repoIdInput.dataset.manuallyEdited === "true") return;
+      val = val.trim().replace(/\/+$/, "").replace(/\.git$/, "");
+      if (!val) {
+        repoIdInput.value = "";
+        return;
+      }
+      let candidate = "";
+      if (val.includes("://") || val.startsWith("git@")) {
+        const parts = val.split("/").filter(Boolean);
+        if (parts.length >= 2 && !parts[parts.length - 1].startsWith("http")) {
+          candidate = parts[parts.length - 2] + "_" + parts[parts.length - 1];
+        } else if (parts.length >= 1) {
+          candidate = parts[parts.length - 1];
+        }
+      } else {
+        const parts = val.split(/[\\/]/).filter(Boolean);
+        candidate = parts.length > 0 ? parts[parts.length - 1] : val;
+      }
+      repoIdInput.value = candidate.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+    }
+
+    document.getElementById("indexRepoId")?.addEventListener("input", function() {
+      this.dataset.manuallyEdited = "true";
+    });
+
+    async function startIndexing() {
+      const source = document.getElementById("indexRepoPath").value.trim();
+      const repoId = document.getElementById("indexRepoId").value.trim();
+      const branch = document.getElementById("indexRepoBranch") ? document.getElementById("indexRepoBranch").value.trim() : "";
+      const statusDiv = document.getElementById("indexStatus");
+      const btn = document.getElementById("startIndexBtn");
+
+      if (!source) {
+        alert("Please enter a public Git repository URL or local path.");
+        return;
+      }
+
+      btn.disabled = true;
+      const isRemote = source.startsWith("http://") || source.startsWith("https://") || source.startsWith("git@") || source.includes(".git") || source.includes("github.com") || source.includes("gitlab.com");
+
+      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> ${isRemote ? "Cloning & Indexing..." : "Parsing AST..."}`;
+      lucide.createIcons();
+
+      statusDiv.classList.remove("hidden");
+      statusDiv.className = "text-[11px] p-2.5 rounded bg-surface-base border border-indigo-500/30 text-indigo-300";
+      statusDiv.innerText = isRemote
+        ? "Cloning public Git repository (shallow clone) and parsing AST symbols..."
+        : "Extracting AST symbols, functions, calls, and building graph...";
+
+      try {
+        const payload = {
+          repo_id: repoId || undefined,
+          branch: branch || undefined,
+        };
+        if (isRemote) {
+          payload.repo_url = source;
+        } else {
+          payload.repo_path = source;
+        }
+
+        const res = await authFetch(`${API_BASE_URL}/api/repos/index`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          statusDiv.className = "text-[11px] p-2.5 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-300";
+          const branchTag = data.branch ? ` [branch: ${data.branch}]` : "";
+          statusDiv.innerText = `✅ Indexed ${data.symbols_indexed} symbols under repo '${data.repo_id}'${branchTag}.`;
+          await loadRepositories();
+          repoSelect.value = data.repo_id;
+          activeRepoTag.innerText = data.repo_id;
+          symbolCount.innerText = data.symbols_indexed;
+        } else {
+          throw new Error(data.detail || "Indexing failed");
+        }
+      } catch (err) {
+        statusDiv.className = "text-[11px] p-2.5 rounded bg-red-950/40 border border-red-500/30 text-red-300";
+        statusDiv.innerText = `❌ Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="scan" class="w-3.5 h-3.5"></i> Clone & Index Repository`;
+        lucide.createIcons();
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Chat & Streaming Logic (SSE Reader)
+    // -------------------------------------------------------------
+    function handleKeyDown(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        handleChatSubmit(event);
+      }
+    }
+
+    function useSamplePrompt(text) {
+      taskInput.value = text;
+      taskInput.focus();
+    }
+
+    function updateAgentStatus(status, label, color) {
+      agentStatusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${color}"></span> ${label}`;
+    }
+
+    async function handleChatSubmit(event) {
+      if (event) event.preventDefault();
+      const task = taskInput.value.trim();
+      const repoId = repoSelect.value;
+      const interactive = interactiveToggle.checked;
+
+      if (!task) return;
+      if (!repoId) {
+        alert("Please select or index a repository first.");
+        return;
+      }
+      if (isRunning) return;
+
+      // Hide welcome
+      const welcome = document.getElementById("welcomeCard");
+      if (welcome) welcome.style.display = "none";
+
+      // Append User Message
+      appendUserMessage(task);
+      taskInput.value = "";
+
+      // Create Agent Container for this run
+      const runContainer = createAgentRunContainer();
+
+      setRunningState(true);
+      updateAgentStatus("running", "Running Graph", "bg-indigo-400 animate-pulse");
+
+      const payload = {
+        task: task,
+        repo_id: repoId,
+        interactive: interactive
+      };
+
+      try {
+        await streamSSE(`${API_BASE_URL}/api/agent/stream`, payload, runContainer);
+      } catch (err) {
+        appendErrorCard(runContainer, err.message);
+        setRunningState(false);
+        updateAgentStatus("idle", "Idle", "bg-slate-400");
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Helper Utilities for Defensive JSON & UI Formatting
+    // -------------------------------------------------------------
+    function extractJsonSafe(str) {
+      if (!str) return null;
+      if (typeof str === "object") return str;
+      if (typeof str !== "string") return null;
+      const trimmed = str.trim();
+      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        try {
+          return JSON.parse(trimmed);
+        } catch (e) {
+          try {
+            const clean = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+            return JSON.parse(clean);
+          } catch (e2) {
+            return null;
+          }
+        }
+      }
+      return null;
+    }
+
+    function formatResultPreview(text) {
+      if (!text) return "";
+      const parsed = extractJsonSafe(text);
+      if (parsed) {
+        return JSON.stringify(parsed, null, 2);
+      }
+      return text;
+    }
+
+    function normalizeAwaitingHumanData(data) {
+      if (!data) return;
+      if (typeof data.prompt === "string") {
+        const parsed = extractJsonSafe(data.prompt);
+        if (parsed && typeof parsed === "object") {
+          if (parsed.reasoning && !data.reasoning) data.reasoning = parsed.reasoning;
+          if (parsed.plan && (!data.plan || data.plan.length === 0)) data.plan = parsed.plan;
+          if (parsed.reflection && !data.reflection) data.reflection = parsed.reflection;
+          data.prompt = "Analysis complete. Review the execution plan and findings below before generating the final specification.";
+        }
+      }
+      if (!data.plan) data.plan = [];
+    }
+
+    function addReviewSuggestion(text) {
+      const cardInput = document.getElementById("cardFeedbackInput");
+      const bottomInput = document.getElementById("hitlFeedbackInput");
+      const current = (cardInput ? cardInput.value.trim() : "") || (bottomInput ? bottomInput.value.trim() : "");
+      const next = current ? `${current}; ${text}` : text;
+      if (cardInput) {
+        cardInput.value = next;
+        cardInput.focus();
+      }
+      if (bottomInput) {
+        bottomInput.value = next;
+      }
+    }
+
+    function syncFeedbackInputs(val) {
+      const cardInput = document.getElementById("cardFeedbackInput");
+      const bottomInput = document.getElementById("hitlFeedbackInput");
+      if (cardInput && cardInput.value !== val) cardInput.value = val;
+      if (bottomInput && bottomInput.value !== val) bottomInput.value = val;
+    }
+
+    function scrollToReviewCard() {
+      const card = document.querySelector(".human-review-card:not(.decided)") || document.querySelector(".human-review-card");
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+
+    function toggleStepDrawer(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle("hidden");
+    }
+
+    async function submitReviewFeedback(feedbackType) {
+      if (!activeThreadId) return;
+
+      const cardInput = document.getElementById("cardFeedbackInput");
+      const bottomInput = document.getElementById("hitlFeedbackInput");
+      const userText = (cardInput ? cardInput.value.trim() : "") || (bottomInput ? bottomInput.value.trim() : "");
+
+      let feedback = feedbackType;
+      if (feedbackType === "revise") {
+        feedback = userText ? `revise: ${userText}` : "revise: please re-evaluate tools and refine the plan";
+      }
+
+      hitlGateContainer.classList.add("hidden");
+      isAwaitingHuman = false;
+
+      // Find active run container
+      const runContainer = document.querySelector(`[data-thread-id="${activeThreadId}"]`) || chatFeed.lastElementChild;
+      
+      // Update decision state in active review card
+      updateReviewCardDecision(runContainer, feedbackType, feedback);
+
+      // Append reviewer note
+      appendHumanReviewDecision(runContainer, feedback);
+
+      setRunningState(true);
+      updateAgentStatus("running", "Resuming...", "bg-indigo-400 animate-pulse");
+
+      try {
+        await streamSSE(`${API_BASE_URL}/api/agent/feedback`, {
+          thread_id: activeThreadId,
+          feedback: feedback
+        }, runContainer);
+      } catch (err) {
+        appendErrorCard(runContainer, err.message);
+        setRunningState(false);
+      }
+    }
+
+    // Modern fetch-based SSE Stream Reader
+    async function streamSSE(url, payload, container) {
+      const token = getAuthToken();
+      const headers = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const streamUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+
+      const response = await fetch(streamUrl, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (response.status === 401) {
+        handleLogout("Session expired. Please sign in again.");
+        throw new Error("Authentication session expired (401).");
+      }
+
+      if (!response.ok) {
+        let errDetail = `Server responded with status ${response.status}`;
+        try {
+          const errJson = await response.json();
+          if (errJson && errJson.detail) {
+            if (typeof errJson.detail === "object" && errJson.detail.message) {
+              errDetail = errJson.detail.message;
+            } else {
+              errDetail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+            }
+          }
+        } catch (_) {
+          try {
+            const errText = await response.text();
+            if (errText) errDetail = errText;
+          } catch (__) {}
+        }
+        throw new Error(errDetail);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep trailing incomplete chunk
+
+        let currentEvent = null;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("event: ")) {
+            currentEvent = trimmed.slice(7).trim();
+          } else if (trimmed.startsWith("data: ") && currentEvent) {
+            const dataStr = trimmed.slice(6).trim();
+            try {
+              const data = JSON.parse(dataStr);
+              handleAgentEvent(currentEvent, data, container);
+            } catch (e) {
+              handleAgentEvent(currentEvent, { raw: dataStr }, container);
+            }
+            currentEvent = null;
+          }
+        }
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Event Handler & DOM Building
+    // -------------------------------------------------------------
+    function handleAgentEvent(event, data, container) {
+      switch (event) {
+        case "session_start":
+          activeThreadId = data.thread_id;
+          container.setAttribute("data-thread-id", data.thread_id);
+          activeThreadDisplay.innerText = data.thread_id;
+          break;
+
+        case "node_update":
+          handleNodeUpdate(data, container);
+          break;
+
+        case "awaiting_human":
+          activeThreadId = data.thread_id;
+          isAwaitingHuman = true;
+          setRunningState(false);
+          updateAgentStatus("paused", "Awaiting Approval", "bg-amber-400 animate-pulse");
+          
+          // Defensively sanitize and structure review payload
+          normalizeAwaitingHumanData(data);
+
+          // Append rich Approval Review Card to chat stream
+          appendHumanReviewCard(container, data);
+
+          // Update and show floating bottom review bar
+          hitlPromptText.innerText = data.prompt || "Review the plan above or approve to author final specification.";
+          hitlGateContainer.classList.remove("hidden");
+          hitlFeedbackInput.value = "";
+          break;
+
+        case "completed":
+          setRunningState(false);
+          updateAgentStatus("idle", "Completed", "bg-emerald-400");
+          if (data.final_spec) {
+            appendFinalSpecCard(container, data.final_spec);
+          }
+          break;
+
+        case "error":
+          setRunningState(false);
+          updateAgentStatus("error", "Error", "bg-red-400");
+          appendErrorCard(container, data.error);
+          break;
+      }
+      scrollToBottom();
+    }
+
+    function handleNodeUpdate(data, container) {
+      const node = data.node;
+      const stepsList = container.querySelector(".agent-steps-list");
+
+      if (node === "planner") {
+        appendPlannerStep(stepsList, data);
+      } else if (node === "tool_caller") {
+        appendToolCallerStep(stepsList, data);
+      } else if (node === "reflector") {
+        appendReflectorStep(stepsList, data);
+      } else if (node === "spec_writer") {
+        if (data.final_spec) {
+          appendFinalSpecCard(container, data.final_spec);
+        }
+      }
+    }
+
+    // DOM Step Builders
+    function appendUserMessage(text) {
+      const div = document.createElement("div");
+      div.className = "flex items-start gap-3 max-w-3xl ml-auto justify-end";
+      div.innerHTML = `
+        <div class="bg-indigo-600/90 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs shadow-md leading-relaxed font-sans max-w-lg">
+          ${escapeHtml(text)}
+        </div>
+        <div class="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-300">
+          <i data-lucide="user" class="w-3.5 h-3.5"></i>
+        </div>
+      `;
+      chatFeed.appendChild(div);
+      lucide.createIcons();
+    }
+
+    function createAgentRunContainer() {
+      const container = document.createElement("div");
+      container.className = "space-y-3 max-w-4xl mr-auto w-full";
+      container.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+          </div>
+          <span class="text-xs font-semibold text-slate-300">Agent Reasoning Pipeline</span>
+        </div>
+        <div class="agent-steps-list space-y-2.5"></div>
+      `;
+      chatFeed.appendChild(container);
+      lucide.createIcons();
+      return container;
+    }
+
+    function appendPlannerStep(stepsList, data) {
+      const div = document.createElement("div");
+      div.className = "p-3.5 rounded-xl bg-surface-card border border-surface-border text-xs";
+      
+      let stepsHtml = "";
+      if (data.plan && data.plan.length > 0) {
+        stepsHtml = data.plan.map((s, i) => `
+          <div class="flex items-start gap-2 text-[11px] py-1 border-b border-surface-border/40 last:border-none">
+            <span class="w-5 h-5 rounded bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-mono font-bold shrink-0 text-[10px]">${i+1}</span>
+            <div class="flex-1">
+              <span class="text-slate-200 font-medium">${escapeHtml(s.description)}</span>
+              <span class="text-[10px] text-indigo-400 font-mono ml-1.5 px-1.5 py-0.5 rounded bg-indigo-500/10">${escapeHtml(s.tool_name)}</span>
+              ${s.rationale ? `<div class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(s.rationale)}</div>` : ""}
+            </div>
+          </div>
+        `).join("");
+      }
+
+      div.innerHTML = `
+        <div class="flex items-center justify-between font-semibold text-indigo-300 mb-2">
+          <span class="flex items-center gap-1.5">
+            <i data-lucide="brain" class="w-4 h-4 text-indigo-400"></i> Plan Generated (Iteration ${data.iteration || 1})
+          </span>
+          <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-base border border-surface-border text-slate-400">${data.plan ? data.plan.length : 0} Steps</span>
+        </div>
+        ${data.reasoning ? `
+          <div class="mb-2.5 p-2.5 rounded-lg bg-indigo-950/20 border border-indigo-500/20 text-[11px] text-indigo-200 leading-relaxed font-sans">
+            <strong class="text-indigo-400 font-semibold block mb-0.5">Strategy:</strong>
+            ${escapeHtml(data.reasoning)}
+          </div>
+        ` : ""}
+        <div class="space-y-1 bg-surface-base/50 p-2 rounded-lg border border-surface-border/30">
+          ${stepsHtml}
+        </div>
+      `;
+      stepsList.appendChild(div);
+      lucide.createIcons();
+    }
+
+    function appendToolCallerStep(stepsList, data) {
+      const div = document.createElement("div");
+      div.className = "p-3 rounded-xl bg-surface-card border border-surface-border text-xs";
+
+      const isError = Boolean(data.error);
+      const iconColor = isError ? "text-red-400" : "text-emerald-400";
+      const iconName = isError ? "alert-triangle" : "check-circle-2";
+
+      div.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor}"></i>
+            <span class="font-mono font-medium text-slate-200">${escapeHtml(data.tool)}</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">Step ${data.current_step} executed</span>
+        </div>
+        ${data.result_preview ? `
+          <div class="mt-2 p-2 rounded bg-surface-base border border-surface-border font-mono text-[11px] text-slate-400 overflow-x-auto whitespace-pre-wrap max-h-40 custom-scrollbar">${escapeHtml(formatResultPreview(data.result_preview))}</div>
+        ` : ""}
+        ${data.error ? `
+          <div class="mt-2 p-2 rounded bg-red-950/40 border border-red-500/30 font-mono text-[11px] text-red-300">${escapeHtml(data.error)}</div>
+        ` : ""}
+      `;
+      stepsList.appendChild(div);
+      lucide.createIcons();
+    }
+
+    function appendReflectorStep(stepsList, data) {
+      if (!data.reflection) return;
+      const div = document.createElement("div");
+      div.className = "p-3 rounded-xl bg-amber-950/20 border border-amber-500/20 text-xs";
+      div.innerHTML = `
+        <div class="flex items-center gap-1.5 font-semibold text-amber-300 mb-1">
+          <i data-lucide="eye" class="w-3.5 h-3.5"></i> Agent Self-Critique & Reflection
+        </div>
+        <div class="text-[11px] text-amber-200/80 leading-relaxed font-sans">
+          ${escapeHtml(data.reflection)}
+        </div>
+      `;
+      stepsList.appendChild(div);
+      lucide.createIcons();
+    }
+
+    // -------------------------------------------------------------
+    // Human-in-the-Loop Approval Card Builder
+    // -------------------------------------------------------------
+    function appendHumanReviewCard(container, data) {
+      // Remove any existing active review card to avoid duplicates
+      const existing = container.querySelector(".human-review-card:not(.decided)");
+      if (existing) existing.remove();
+
+      const card = document.createElement("div");
+      card.className = "human-review-card mt-4 rounded-2xl bg-gradient-to-b from-amber-950/25 via-surface-card to-surface-card border-2 border-amber-500/50 shadow-2xl shadow-amber-950/30 overflow-hidden transition-all duration-300";
+      
+      const cardId = "rev_" + Math.random().toString(36).substring(2, 9);
+      const plan = Array.isArray(data.plan) ? data.plan : [];
+      const totalSteps = data.stats?.total_steps || plan.length;
+      const completedSteps = data.stats?.completed_steps || plan.filter(s => s.status === "done").length;
+      const targetRepo = data.repo_id || repoSelect.value || "Codebase";
+
+      let stepsHtml = "";
+      if (plan.length > 0) {
+        stepsHtml = plan.map((step, idx) => {
+          const isDone = step.status === "done" || idx < completedSteps;
+          const statusBadge = isDone
+            ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i data-lucide="check" class="w-2.5 h-2.5"></i> Executed</span>`
+            : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"><i data-lucide="clock" class="w-2.5 h-2.5"></i> Proposed</span>`;
+          
+          const drawerId = `step_drawer_${cardId}_${idx}`;
+          const hasDetails = step.tool_args || step.result || step.rationale;
+
+          let drawerContent = "";
+          if (step.rationale) {
+            drawerContent += `<div class="mb-1.5 text-slate-400"><strong class="text-slate-300">Rationale:</strong> ${escapeHtml(step.rationale)}</div>`;
+          }
+          if (step.tool_args && Object.keys(step.tool_args).length > 0) {
+            drawerContent += `<div class="mb-1.5 text-slate-400 font-mono text-[10px]"><strong class="text-slate-300 font-sans">Arguments:</strong><pre class="mt-1 p-1.5 rounded bg-surface-base text-slate-300 overflow-x-auto">${escapeHtml(JSON.stringify(step.tool_args, null, 2))}</pre></div>`;
+          }
+          if (step.result) {
+            const resStr = typeof step.result === "object" ? JSON.stringify(step.result, null, 2) : String(step.result);
+            drawerContent += `<div class="text-slate-400 font-mono text-[10px]"><strong class="text-slate-300 font-sans">Result preview:</strong><pre class="mt-1 p-1.5 rounded bg-surface-base text-slate-300 whitespace-pre-wrap max-h-36 overflow-y-auto custom-scrollbar">${escapeHtml(resStr.slice(0, 500))}</pre></div>`;
+          }
+
+          return `
+            <div class="p-3 rounded-xl bg-surface-base/70 border border-surface-border/60 hover:border-surface-accentBorder transition">
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex items-start gap-2.5 flex-1">
+                  <span class="w-6 h-6 rounded-lg ${isDone ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"} flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">${idx + 1}</span>
+                  <div class="flex-1">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="text-xs font-semibold text-slate-100">${escapeHtml(step.description || "Execute Tool")}</span>
+                      <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${escapeHtml(step.tool_name || "tool")}</span>
+                      ${statusBadge}
+                    </div>
+                    ${step.rationale ? `<p class="text-[11px] text-slate-400 mt-1">${escapeHtml(step.rationale)}</p>` : ""}
+                  </div>
+                </div>
+                ${hasDetails ? `
+                  <button type="button" onclick="toggleStepDrawer('${drawerId}')" class="text-[10px] font-mono text-slate-400 hover:text-indigo-300 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-indigo-500/30 transition shrink-0 flex items-center gap-1">
+                    Details <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                  </button>
+                ` : ""}
+              </div>
+              ${hasDetails ? `
+                <div id="${drawerId}" class="hidden mt-2.5 pt-2 border-t border-surface-border/40 text-[11px] font-sans">
+                  ${drawerContent}
+                </div>
+              ` : ""}
+            </div>
+          `;
+        }).join("");
+      } else {
+        stepsHtml = `<div class="p-3 rounded-lg bg-surface-base/40 text-slate-400 text-xs italic">No specific steps defined. Ready for architectural review.</div>`;
+      }
+
+      card.innerHTML = `
+        <!-- Top Status Banner -->
+        <div class="px-5 py-4 bg-amber-500/10 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner shrink-0">
+              <i data-lucide="shield-check" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-xs font-bold text-amber-100 uppercase tracking-wider">Human-in-the-Loop Review Gate</h3>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Approval Required
+                </span>
+              </div>
+              <p class="text-xs text-amber-200/90 mt-0.5">The agent has finished codebase AST traversal and is awaiting your verification before authoring the final specification.</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 text-[11px] font-mono text-slate-300">
+            <span class="px-2.5 py-1 rounded-lg bg-surface-base/80 border border-surface-border flex items-center gap-1.5">
+              <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-400"></i> ${completedSteps}/${totalSteps} Steps Complete
+            </span>
+            <span class="px-2.5 py-1 rounded-lg bg-surface-base/80 border border-surface-border flex items-center gap-1.5">
+              <i data-lucide="git-branch" class="w-3.5 h-3.5 text-indigo-400"></i> ${escapeHtml(targetRepo)}
+            </span>
+          </div>
+        </div>
+
+        <!-- Body Content -->
+        <div class="p-5 space-y-4">
+          
+          <!-- Strategy / Reasoning Section -->
+          ${data.reasoning ? `
+            <div class="p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-500/30 text-xs">
+              <div class="flex items-center gap-2 text-indigo-300 font-semibold mb-1.5 text-xs">
+                <i data-lucide="brain-circuit" class="w-4 h-4 text-indigo-400"></i>
+                <span>Architectural Approach & Strategy</span>
+              </div>
+              <p class="text-slate-200 text-xs leading-relaxed font-sans">${escapeHtml(data.reasoning)}</p>
+            </div>
+          ` : ""}
+
+          <!-- Execution Plan & Verification -->
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="list-checks" class="w-4 h-4 text-indigo-400"></i> Execution Steps & Traversals
+              </h4>
+              <span class="text-[11px] text-slate-400 font-mono">${plan.length} Steps Defined</span>
+            </div>
+            <div class="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
+              ${stepsHtml}
+            </div>
+          </div>
+
+          <!-- Agent Critique & Self-Reflection -->
+          ${data.reflection ? `
+            <div class="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/25 text-xs">
+              <div class="flex items-center gap-2 text-amber-300 font-semibold mb-1.5 text-xs">
+                <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i>
+                <span>Agent Self-Critique & Risk Analysis</span>
+              </div>
+              <div class="text-amber-200/90 text-xs leading-relaxed font-sans whitespace-pre-wrap">${escapeHtml(data.reflection)}</div>
+            </div>
+          ` : ""}
+
+          <!-- Decision Console -->
+          <div class="decision-console-area pt-4 border-t border-surface-border/60 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-emerald-400"></i> Review Decision
+              </span>
+              <span class="text-[11px] text-slate-400">Approve to write specification or request revisions</span>
+            </div>
+
+            <!-- Quick Suggestion Chips -->
+            <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span class="text-slate-400 text-[10px] uppercase font-semibold mr-1">Quick Suggestions:</span>
+              <button type="button" onclick="addReviewSuggestion('Focus on blast radius and upstream callers')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ Blast Radius</button>
+              <button type="button" onclick="addReviewSuggestion('Include detailed rollback and migration fallback plan')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ Rollback Plan</button>
+              <button type="button" onclick="addReviewSuggestion('Check database connection pooling and caching impacts')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ DB / Caching</button>
+              <button type="button" onclick="addReviewSuggestion('Detail error handling and test suite requirements')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ Error Handling</button>
+            </div>
+
+            <!-- Feedback Guidance Textarea -->
+            <div>
+              <textarea id="cardFeedbackInput" rows="2" placeholder="Optional revision guidance: e.g., 'Also inspect callers of helper methods before refactoring'..." class="w-full bg-surface-base border border-surface-border rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 transition shadow-inner font-sans custom-scrollbar" oninput="syncFeedbackInputs(this.value)"></textarea>
+            </div>
+
+            <!-- Action Buttons Row -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div class="flex items-center gap-2.5">
+                <button type="button" onclick="submitReviewFeedback('approve')" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
+                  <i data-lucide="check" class="w-4 h-4"></i> Approve & Generate Spec
+                </button>
+                <button type="button" onclick="submitReviewFeedback('revise')" class="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs flex items-center gap-2 shadow-md shadow-amber-950/30 transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
+                  <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Request Revisions
+                </button>
+              </div>
+
+              <button type="button" onclick="submitReviewFeedback('stop')" class="px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-950/20 flex items-center gap-1.5 transition cursor-pointer" title="Cancel this agent session">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i> Abort Session
+              </button>
+            </div>
+
+          </div>
+
+        </div>
+      `;
+
+      const stepsList = container.querySelector(".agent-steps-list");
+      if (stepsList) {
+        stepsList.appendChild(card);
+      } else {
+        container.appendChild(card);
+      }
+      lucide.createIcons();
+      scrollToBottom();
+    }
+
+    function updateReviewCardDecision(container, feedbackType, feedback) {
+      const card = container ? container.querySelector(".human-review-card:not(.decided)") : null;
+      if (!card) return;
+      card.classList.add("decided");
+
+      const decisionArea = card.querySelector(".decision-console-area");
+      if (!decisionArea) return;
+
+      if (feedbackType === "approve") {
+        decisionArea.innerHTML = `
+          <div class="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between text-xs text-emerald-200">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                <i data-lucide="check" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="font-bold block text-emerald-100">Plan Approved by You</span>
+                <span class="text-[11px] text-emerald-300/80">Synthesizing production architecture specification...</span>
+              </div>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Phase 2: Authoring Spec</span>
+          </div>
+        `;
+      } else if (feedbackType === "revise") {
+        decisionArea.innerHTML = `
+          <div class="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center justify-between text-xs text-amber-200">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="font-bold block text-amber-100">Revisions Requested</span>
+                <span class="text-[11px] text-amber-300/80">${escapeHtml(feedback)}</span>
+              </div>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Replanning</span>
+          </div>
+        `;
+      } else {
+        decisionArea.innerHTML = `
+          <div class="p-3.5 rounded-xl bg-red-950/40 border border-red-500/40 flex items-center gap-2.5 text-xs text-red-200">
+            <i data-lucide="x-circle" class="w-4 h-4 text-red-400"></i>
+            <span>Session Aborted by Reviewer</span>
+          </div>
+        `;
+      }
+      lucide.createIcons();
+    }
+
+    function appendHumanReviewDecision(container, feedback) {
+      const stepsList = container.querySelector(".agent-steps-list");
+      const div = document.createElement("div");
+      div.className = "p-2.5 rounded-lg bg-surface-card border border-indigo-500/30 text-xs flex items-center justify-between";
+      div.innerHTML = `
+        <span class="flex items-center gap-1.5 text-slate-300">
+          <i data-lucide="user-check" class="w-3.5 h-3.5 text-indigo-400"></i> Reviewer feedback provided:
+        </span>
+        <span class="font-mono text-[11px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${escapeHtml(feedback)}</span>
+      `;
+      stepsList.appendChild(div);
+      lucide.createIcons();
+    }
+
+    function appendFinalSpecCard(container, specMarkdown) {
+      // Remove any existing final spec in this container to prevent duplicate renders
+      const existing = container.querySelector(".final-spec-card");
+      if (existing) existing.remove();
+
+      const card = document.createElement("div");
+      card.className = "final-spec-card mt-4 p-5 rounded-2xl bg-surface-card border border-indigo-500/40 shadow-xl shadow-indigo-950/20";
+      
+      const parsedHtml = marked.parse(specMarkdown);
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between pb-3 mb-4 border-b border-surface-border">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+              <i data-lucide="file-check-2" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold text-white uppercase tracking-wider">Final Architecture Specification</h3>
+              <span class="text-[10px] text-slate-400">Grounded in AST Graph Traversal</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="copySpec(this)" class="px-2.5 py-1 rounded-lg text-xs bg-surface-base hover:bg-surface-border text-slate-300 border border-surface-border flex items-center gap-1.5 transition">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+            </button>
+            <button onclick="downloadSpec()" class="px-2.5 py-1 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center gap-1.5 transition">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Download
+            </button>
+          </div>
+        </div>
+        <div class="markdown-body text-xs text-slate-300 font-sans custom-scrollbar">
+          ${parsedHtml}
+        </div>
+      `;
+
+      container.appendChild(card);
+      lucide.createIcons();
+      card.querySelectorAll('pre code').forEach((el) => {
+        hljs.highlightElement(el);
+      });
+      scrollToBottom();
+    }
+
+    function appendErrorCard(container, errorText) {
+      const div = document.createElement("div");
+      div.className = "p-4 rounded-xl bg-red-950/30 border border-red-500/40 text-xs text-red-200";
+      div.innerHTML = `
+        <div class="flex items-center gap-2 font-semibold text-red-300 mb-1">
+          <i data-lucide="x-circle" class="w-4 h-4 text-red-400"></i> Execution Terminated
+        </div>
+        <div class="font-mono text-[11px] text-red-300/80">${escapeHtml(errorText)}</div>
+      `;
+      container.appendChild(div);
+      lucide.createIcons();
+    }
+
+    // -------------------------------------------------------------
+    // UI Helpers & Utilities
+    // -------------------------------------------------------------
+    function setRunningState(running) {
+      isRunning = running;
+      sendBtn.disabled = running;
+      if (running) {
+        sendBtnText.innerText = "Planning...";
+        sendBtnIcon.setAttribute("data-lucide", "loader-2");
+        sendBtnIcon.classList.add("animate-spin");
+      } else {
+        sendBtnText.innerText = "Run Plan";
+        sendBtnIcon.setAttribute("data-lucide", "arrow-up");
+        sendBtnIcon.classList.remove("animate-spin");
+      }
+      lucide.createIcons();
+    }
+
+    function scrollToBottom() {
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    function clearChat() {
+      chatFeed.innerHTML = "";
+      activeThreadId = null;
+      activeThreadDisplay.innerText = "None";
+      hitlGateContainer.classList.add("hidden");
+      setRunningState(false);
+      updateAgentStatus("idle", "Idle", "bg-slate-400");
+    }
+
+    function toggleServerConfig() {
+      const modal = document.getElementById("serverConfigModal");
+      modal.classList.toggle("hidden");
+    }
+
+    function saveServerConfig() {
+      let val = document.getElementById("serverBaseUrlInput").value.trim();
+      if (!val) val = "http://localhost:8000";
+      val = val.replace(/\/+$/, ""); // remove trailing slash
+      API_BASE_URL = val;
+      localStorage.setItem("CODEBASE_AGENT_API_URL", val);
+      toggleServerConfig();
+      checkServerHealth();
+      if (getAuthToken()) {
+        loadRepositories();
+      } else {
+        loadVipUsers();
+      }
+    }
+
+    function copySpec(btn) {
+      const specEl = btn.closest(".final-spec-card").querySelector(".markdown-body");
+      navigator.clipboard.writeText(specEl.innerText).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> Copied!`;
+        lucide.createIcons();
+        setTimeout(() => { btn.innerHTML = orig; lucide.createIcons(); }, 1800);
+      });
+    }
+
+    function downloadSpec() {
+      const activeRepo = repoSelect.value || "codebase";
+      const specEl = document.querySelector(".final-spec-card .markdown-body");
+      if (!specEl) return;
+      const blob = new Blob([specEl.innerText], { type: "text/markdown" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `spec_${activeRepo}_${Date.now()}.md`;
+      a.click();
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
+

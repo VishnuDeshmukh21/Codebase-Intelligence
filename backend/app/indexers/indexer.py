@@ -5,10 +5,16 @@ from typing import Dict, List, Set, Optional
 from pymongo import MongoClient, UpdateOne
 import re
 
-def sanitize_repo_id(path_or_name: str) -> str:
-    name = Path(path_or_name).resolve().name
-    clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name).strip('_').lower()
-    return clean_name or "default_repo"
+try:
+    from repo_manager import sanitize_repo_id
+except ImportError:
+    try:
+        from app.repo_manager import sanitize_repo_id
+    except ImportError:
+        def sanitize_repo_id(path_or_name: str) -> str:
+            name = Path(path_or_name).name
+            clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name).strip('_').lower()
+            return clean_name or "default_repo"
 
 class RepoGraphIndexer:
     def __init__(self, repo_path: str, repo_id: str, mongo_uri: str = "mongodb://localhost:27017", db_name: str = "prode_engine"):
