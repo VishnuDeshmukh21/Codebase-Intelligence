@@ -64,6 +64,8 @@ from repo_manager import (
     resolve_repository_source,
     sanitize_repo_id,
 )
+from auth_mcp import MCPAuthManager
+from main import mcp
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 log = structlog.get_logger()
@@ -155,6 +157,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount live MCP Server SSE application for remote agent connections
+try:
+    app.mount("/mcp", mcp.sse_app())
+except Exception as exc:
+    log.warning("server.mcp_mount_failed", error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +385,79 @@ def delete_session(thread_id: str, request: Request, current_user: dict = Depend
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Session not found.")
     return {"status": "deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Plug-and-Play MCP API Key Management (Self-Service for Users)
+# ---------------------------------------------------------------------------
+
+class CreateKeyRequest(BaseModel):
+    name: str = Field("My Agent", description="Client or agent name (e.g. Cursor, Slack Bot, Claude Desktop)")
+
+
+@app.post("/api/keys/generate")
+def generate_mcp_key(body: CreateKeyRequest, request: Request, current_user: dict = Depends(get_current_user)):
+    """Generate a new plug-and-play MCP API key for the authenticated user."""
+    db = request.app.state.db
+    auth_mgr = MCPAuthManager(db)
+    raw_key, info = auth_mgr.generate_api_key(
+        name=body.name,
+        tenant_id=current_user.get("sub", "default"),
+    )
+    base_url = str(request.base_url).rstrip("/")
+    mcp_endpoint = f"{base_url}/mcp/sse"
+    return {
+        "api_key": raw_key,
+        "key_info": info,
+        "mcp_url": mcp_endpoint,
+        "configs": {
+            "cursor": {
+                "mcpServers": {
+                    "CodeGraph": {
+                        "url": mcp_endpoint,
+                        "headers": {
+                            "Authorization": f"Bearer {raw_key}"
+                        }
+                    }
+                }
+            },
+            "claude_desktop": {
+                "mcpServers": {
+                    "CodeGraph": {
+                        "url": mcp_endpoint,
+                        "headers": {
+                            "Authorization": f"Bearer {raw_key}"
+                        }
+                    }
+                }
+            },
+            "slack_bot_env": {
+                "CODEGRAPH_MCP_URL": mcp_endpoint,
+                "CODEGRAPH_API_KEY": raw_key
+            }
+        }
+    }
+
+
+@app.get("/api/keys")
+def list_mcp_keys(request: Request, current_user: dict = Depends(get_current_user)):
+    """List all MCP API keys for the current user."""
+    db = request.app.state.db
+    auth_mgr = MCPAuthManager(db)
+    keys = auth_mgr.list_api_keys(tenant_id=current_user.get("sub", "default"))
+    return {"keys": keys}
+
+
+@app.delete("/api/keys/{key_id}")
+def revoke_mcp_key(key_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Revoke an MCP API key."""
+    db = request.app.state.db
+    auth_mgr = MCPAuthManager(db)
+    success = auth_mgr.revoke_api_key(key_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Key not found or already revoked.")
+    return {"status": "revoked", "key_id": key_id}
+
 
 
 # ---------------------------------------------------------------------------

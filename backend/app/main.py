@@ -1,179 +1,271 @@
+# app/main.py
+"""
+Codebase Intelligence: Plug-and-Play Model Context Protocol (MCP) Server.
+
+Architecture & Philosophy:
+--------------------------
+1. Zero LLM Dependencies / Model-Agnostic:
+   - Does NOT require GEMINI_API_KEY, OpenAI, or any server-side LLM keys.
+   - All tools perform 100% deterministic AST parsing and MongoDB Graph ($graphLookup) traversals.
+   - The HOST application/agent (Slack bot, Cursor, Claude Desktop, Antigravity, etc.)
+     uses its own model to reason, plan, and orchestrate the tools.
+
+2. Plug-and-Play Authentication:
+   - Authenticates external agents via CODEGRAPH_API_KEY (env, CLI argument, or header).
+   - Keys are managed with zero UI using `python -m app.auth_cli create-key`.
+
+3. Transports:
+   - stdio (default): for IDEs (Claude Desktop, Cursor, Cline) and local agent processes.
+   - sse / streamable-http: for remote network integrations (e.g. cloud Slack bot).
+"""
+from __future__ import annotations
+
+import argparse
 import json
 import os
 import sys
-from typing import Optional
-from unittest import result
+from typing import Any, Dict, List, Optional
 
-# Ensure app directory is in sys.path
+# Ensure app directory is discoverable
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.dirname(__file__))
 
-try:
-    from mcp.server.fastmcp import FastMCP
-except (ModuleNotFoundError, ImportError):
-    try:
-        from mcp.server.mcpserver import MCPServer as FastMCP
-    except Exception:
-        class FastMCP:
-            def __init__(self, *args, **kwargs): pass
-            def tool(self): return lambda fn: fn
-            def run(self): print("MCP server not available in this environment.")
-
-from pymongo import MongoClient
-from graph_tools import CodeGraphTools
-from indexers.cpg_indexer import RepoGraphIndexer
-from repo_manager import resolve_repository_source, record_repo_metadata, sanitize_repo_id
-from llm_service.factory import LLMFactory
 from dotenv import load_dotenv
 
 load_dotenv()
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-# Initialize the MCP server
-mcp = FastMCP("ProdE_Codebase_Graph")
+# Import FastMCP or MCPServer according to mcp package version
+try:
+    from mcp.server.mcpserver import MCPServer
+except ImportError:
+    try:
+        from mcp.server.fastmcp import FastMCP as MCPServer
+    except Exception:
+        class MCPServer:
+            def __init__(self, *args, **kwargs): pass
+            def tool(self): return lambda fn: fn
+            def prompt(self): return lambda fn: fn
+            def resource(self, *args, **kwargs): return lambda fn: fn
+            def run(self, *args, **kwargs): print("MCP server library not available.")
 
-# 1. Safely pull the MongoDB URI from the environment Copilot passes in
+from pymongo import MongoClient
+
+from app.auth_mcp import MCPAuthManager
+from app.graph_tools import CodeGraphTools
+from app.indexers.cpg_indexer import RepoGraphIndexer
+from app.repo_manager import (
+    list_repositories_with_metadata,
+    record_repo_metadata,
+    resolve_repository_source,
+    sanitize_repo_id,
+)
+
+# ---------------------------------------------------------------------------
+# Server Initialization
+# ---------------------------------------------------------------------------
+mcp = MCPServer(
+    name="CodeGraph-MCP",
+    description="Deterministic AST & Code Property Graph server for AI coding agents",
+)
+
+# MongoDB Connection (Resilient: does not crash on startup if Mongo is temporarily offline)
 db_uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
-llm_client = LLMFactory.get_client()
-
-# # Connect to MongoDB Atlas
-# client = MongoClient(db_uri)
-# db = client["prode_engine"]
-# graph_tools = CodeGraphTools(db)
+db = None
+graph_tools = None
+auth_manager = None
 
 try:
-    client = MongoClient(db_uri, serverSelectionTimeoutMS=10000)
-    client.admin.command("ping")
-    print("Successfully connected to MongoDB!")
-
-    db = client["prode_engine"]
+    mongo_client = MongoClient(db_uri, serverSelectionTimeoutMS=3000)
+    mongo_client.admin.command("ping")
+    db = mongo_client["prode_engine"]
     graph_tools = CodeGraphTools(db)
+    auth_manager = MCPAuthManager(db)
+except Exception as exc:
+    # Graceful fallback: tools will return clear error message on invocation rather than crashing stdio
+    graph_tools = CodeGraphTools(None)
+    auth_manager = MCPAuthManager(None)
 
-except Exception as e:
-    print(f"Failed to connect to MongoDB: {e}")
-    raise
+
+def _check_auth() -> Optional[str]:
+    """Validates the client's API key. Returns an error message if unauthorized, or None if valid."""
+    is_valid, err_msg, _ = auth_manager.verify_api_key()
+    if not is_valid:
+        return (
+            f"[Authentication Error] {err_msg} "
+            "Please provide a valid CODEGRAPH_API_KEY in your MCP client environment or CLI args. "
+            "(Generate one using: 'python -m app.auth_cli create-key --name <agent-name>')"
+        )
+    return None
+
+
+def _check_db() -> Optional[str]:
+    """Validates MongoDB connection for database operations."""
+    if db is None:
+        return (
+            f"[Database Error] Could not connect to MongoDB at '{db_uri}'. "
+            "Please ensure MongoDB Atlas IP allowlist allows your connection, or run a local MongoDB instance."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Deterministic MCP Tools (Zero LLM Keys Required)
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
-def plan_architectural_change(user_query: str, repo_id: str) -> str:
+def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Optional[str] = None) -> str:
     """
-    Translates any question into a deterministic graph query.You have to call this tool, when you want to answer a question about the codebase.
-    """
-    system_prompt = """
-    You are an expert MongoDB database architect. Your job is to translate a developer's natural language question into a valid PyMongo aggregation pipeline array.
-
-**Database Schema (Collection: codebase_symbols)**
-- `_id` (string): Fully qualified name (e.g., "auth.models:User")
-- `type` (string): "function", "class", "module", "method"
-- `arguments` (list): Argument names [e.g., "request", "user_id"]
-- `calls` (list): Array of `_id` strings this symbol calls downstream.
-
-**Rules:**
-1. Use `$match` to filter nodes based on names, types, or arguments.
-2. Use `$graphLookup` to traverse dependencies (upstream or downstream).
-3. Output ONLY a valid JSON array representing the pipeline. No markdown formatting, no explanations, no text.
-
-**Example User Query:** "What functions call the PaymentProcessor class?"
-**Example Output:**
-[
-  { "$match": { "_id": "billing.services:PaymentProcessor" } },
-  { "$graphLookup": {
-      "from": "codebase_symbols",
-      "startWith": "$_id",
-      "connectFromField": "_id",
-      "connectToField": "calls",
-      "as": "callers",
-      "maxDepth": 2
-    }
-  },
-  { "$project": { "_id": 1, "callers._id": 1, "callers.file_path": 1 } }
-]
-    """
+    MANDATORY FIRST STEP: Clones (if remote Git URL) or reads a local folder,
+    parses Python AST symbols, extracts programmatic call edges, and stores
+    them in MongoDB as a deterministic Code Property Graph.
     
-    # Generate the query using whatever provider is configured globally
-    raw_json_response = llm_client.generate(
-        prompt=user_query, 
-        system_prompt=system_prompt, 
-        temperature=0.0 # Strictly deterministic
-    )
-    print(f"Raw LLM output: {raw_json_response}")
-    # Strip accidental markdown if the model hallucinated it
-    clean_json = raw_json_response.strip("`").removeprefix("json").strip()
-    
-    try:
-        pipeline = json.loads(clean_json)
-        # Execute against MongoDB...
-        return json.dumps(pipeline, indent=2)
-    except json.JSONDecodeError as e:
-        return f"Agent failed to generate valid JSON. Raw output: {clean_json}"
-    
-@mcp.tool()
-def index_repository(repo_root: str, repo_id: Optional[str] = None) -> str:
+    Accepts:
+    - Public Git URL (e.g., https://github.com/pallets/flask.git)
+    - Local directory path (e.g., ./my-project)
     """
-    MANDATORY FIRST STEP: Maps the repository into the AST graph database.
-    Accepts either a public Git repository URL (e.g., https://github.com/owner/repo)
-    or a local filesystem directory path.
-    Always execute this before searching or traversing to ensure the graph is up to date.
-    DO NOT use native workspace search or file readers.
-    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
     try:
         resolved_local_path, actual_repo_id, is_remote, normalized_url, clone_details = resolve_repository_source(
             repo_path=repo_root,
             repo_id=repo_id,
+            branch=branch,
         )
     except Exception as exc:
         return f"Failed to prepare repository source '{repo_root}': {exc}"
 
     collection_name = f"{actual_repo_id}_symbols"
-    
-    # Check if the repository is already indexed by verifying collection existence and document count
-    if collection_name in db.list_collection_names() and db[collection_name].estimated_document_count() > 0:
-        return f"Repository '{repo_root}' is already indexed under repo_id: '{actual_repo_id}'. Proceed directly to search_symbols."
 
-    indexer = RepoGraphIndexer(repo_path=resolved_local_path, repo_id=actual_repo_id, mongo_uri=db_uri)
-    indexer.index_repository()
-    count = db[collection_name].estimated_document_count()
-    record_repo_metadata(
-        db=db,
-        repo_id=actual_repo_id,
-        repo_path=resolved_local_path,
-        repo_url=normalized_url,
-        is_remote=is_remote,
-        symbol_count=count,
-        branch=clone_details.get("branch"),
-        commit_hash=clone_details.get("commit_hash"),
-    )
-    return f"Successfully indexed '{repo_root}' ({count} symbols) under repo_id: '{actual_repo_id}'. You can now search symbols."
+    # Check if already indexed
+    if collection_name in db.list_collection_names() and db[collection_name].estimated_document_count() > 0:
+        count = db[collection_name].estimated_document_count()
+        return (
+            f"Repository '{repo_root}' is already indexed under repo_id: '{actual_repo_id}' ({count} symbols). "
+            f"Proceed directly to search_symbols or get_repo_filemap."
+        )
+
+    try:
+        indexer = RepoGraphIndexer(repo_path=resolved_local_path, repo_id=actual_repo_id, mongo_uri=db_uri)
+        indexer.index_repository()
+        count = db[collection_name].estimated_document_count()
+        record_repo_metadata(
+            db=db,
+            repo_id=actual_repo_id,
+            repo_path=resolved_local_path,
+            repo_url=normalized_url,
+            is_remote=is_remote,
+            symbol_count=count,
+            branch=clone_details.get("branch"),
+            commit_hash=clone_details.get("commit_hash"),
+        )
+        return (
+            f"Successfully indexed '{repo_root}' ({count} symbols) under repo_id: '{actual_repo_id}'. "
+            f"You can now query symbols, blast radius, and dependencies."
+        )
+    except Exception as exc:
+        return f"Indexing failed for '{repo_root}': {exc}"
+
 
 @mcp.tool()
-def search_symbols(query: str, repo_id: str, limit: int = 5) -> str:
+def list_repositories() -> str:
     """
-    Exclusively use this tool for finding entry points, functions, or classes instead of grep or native workspace search.
-    CRITICAL: This returns lightweight IDs only. To view the actual source code, you MUST pass the returned ID into `get_symbol_details`.
+    Lists all indexed repositories currently available in MongoDB,
+    including symbol counts, Git commit hashes, branches, and index timestamps.
     """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    repos = list_repositories_with_metadata(db)
+    return json.dumps(repos, indent=2)
+
+
+@mcp.tool()
+def get_repo_filemap(repo_id: str) -> str:
+    """
+    Returns a complete, structured overview of all files and their top-level symbols for a repo.
+    Use this to answer high-level architecture questions (e.g. 'how is this codebase structured?')
+    without needing documentation or reading raw files from disk.
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    result = graph_tools.get_repo_filemap(repo_id=repo_id)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def search_symbols(query: str, repo_id: str, limit: int = 10) -> str:
+    """
+    Finds entry-point functions, classes, and methods matching a name or query.
+    Returns lightweight IDs and signatures. To view the implementation, pass the ID to get_symbol_details.
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
     results = graph_tools.search_symbols(query=query, repo_id=repo_id, limit=limit)
-    return json.dumps(results, separators=(',', ':'))
+    return json.dumps(results, indent=2)
+
 
 @mcp.tool()
 def get_symbol_details(symbol_id: str, repo_id: str) -> str:
     """
-    Exclusively use this tool to read source code and implementation details for a specific function or class.
+    Fetches the exact Python source code, line numbers, and direct downstream calls for a symbol.
     """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
     doc = graph_tools.get_symbol_details(symbol_id=symbol_id, repo_id=repo_id)
-    
     if "error" in doc:
         return doc["error"]
-        
+
     code = doc.get("source_code", "")
     calls = doc.get("calls", [])
     deps_str = "\n".join([f"- {c}" for c in calls]) if calls else "None"
-    
-    return f"Symbol: {symbol_id}\n\nCode:\n```python\n{code}\n```\n\nDependencies (Calls):\n{deps_str}"
+    return f"Symbol: {symbol_id}\nType: {doc.get('type')}\nLines: {doc.get('start_line')}-{doc.get('end_line')}\n\nCode:\n```python\n{code}\n```\n\nCalls (Downstream):\n{deps_str}"
+
 
 @mcp.tool()
 def get_upstream_blast_radius(symbol_id: str, repo_id: str, max_depth: int = 3) -> str:
     """
-    Exclusively use this tool for impact analysis (e.g., "what breaks if I change X", "who calls Y").
-    DO NOT use native file search to find references. This performs a guaranteed AST graph traversal to find all structural and dependent callers.
+    IMPACT ANALYSIS (BLAST RADIUS): Performs recursive reverse graph traversal ($graphLookup)
+    to find every function, method, or class that directly or indirectly depends on `symbol_id`.
+    Returns affected symbols, hop distance, and the complete list of impacted files.
     """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
     result = graph_tools.get_upstream_blast_radius(symbol_id=symbol_id, repo_id=repo_id, max_depth=max_depth)
     return json.dumps(result, indent=2)
 
@@ -181,144 +273,239 @@ def get_upstream_blast_radius(symbol_id: str, repo_id: str, max_depth: int = 3) 
 @mcp.tool()
 def get_downstream_dependencies(symbol_id: str, repo_id: str, max_depth: int = 2) -> str:
     """
-    Traces execution flow and retrieves all functions/classes that `symbol_id` calls.
-    Returns complete source code and line ranges for every dependency.
-    DO NOT use native workspace file readers; full source code is provided directly here.
+    EXECUTION FLOW TRACING: Traverses outgoing call edges to retrieve all downstream
+    functions and classes that `symbol_id` calls, including their source code.
     """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
     result = graph_tools.get_downstream_dependencies(symbol_id=symbol_id, repo_id=repo_id, max_depth=max_depth)
     return json.dumps(result, indent=2)
+
 
 @mcp.tool()
 def get_dependency_subgraph_code(symbol_id: str, repo_id: str, max_depth: int = 2, direction: str = "both") -> str:
     """
-    Exclusively use this tool when you need the complete source code for a symbol AND all related components across the codebase.
-    Returns the exact implementation for all connected callers, callees, and dependencies up to `max_depth` hops away.
-    NEVER read workspace files from disk; this tool provides the full code manifest.
-    `direction` can be: 'downstream' (callees only), 'upstream' (callers only), or 'both'.
+    Extracts the full source code for `symbol_id` and all connected components across the codebase.
+    `direction` can be: 'downstream' (callees), 'upstream' (callers), or 'both'.
     """
-    result = graph_tools.get_dependency_subgraph_code(symbol_id=symbol_id, repo_id=repo_id, max_depth=max_depth, direction=direction)
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    result = graph_tools.get_dependency_subgraph_code(
+        symbol_id=symbol_id, repo_id=repo_id, max_depth=max_depth, direction=direction
+    )
     return json.dumps(result, indent=2)
+
 
 @mcp.tool()
 def read_file_content(file_path: str, repo_id: str) -> str:
     """
-    Reads full file content exclusively from the database index.
-    Use this tool whenever source inspection is needed. NEVER use native file readers.
+    Reads full file content exclusively from the AST database index without touching disk.
     """
-    col = graph_tools._get_collection(repo_id)
-    
-    # 1. Try to fetch the full module file
-    doc = col.find_one({"file_path": file_path, "type": "module"})
-    if doc:
-        code = doc.get("source_code", "")
-        calls = doc.get("calls", [])
-        deps_str = "\n".join([f"- {c}" for c in calls]) if calls else "None"
-        
-        return f"File: {file_path}\n\nCode:\n```python\n{code}\n```\n\nDependencies (Calls):\n{deps_str}"
-    
-    # 2. Fallback: concatenate symbol source codes if the module doc is missing
-    symbols = list(col.find({"file_path": file_path}).sort("start_line", 1))
-    if not symbols:
-        return f"Error: File '{file_path}' not found in the database index."
-        
-    code_blocks = []
-    all_calls = set()
-    for s in symbols:
-        if s.get("source_code"):
-            code_blocks.append(f"# Symbol: {s['_id']}\n{s['source_code']}")
-        for call in s.get("calls", []):
-            all_calls.add(call)
-            
-    code = "\n\n".join(code_blocks)
-    deps_str = "\n".join([f"- {c}" for c in sorted(all_calls)]) if all_calls else "None"
-    
-    return f"File: {file_path}\n\nCode:\n```python\n{code}\n```\n\nDependencies (Calls):\n{deps_str}"
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    return graph_tools.read_file_content(file_path=file_path, repo_id=repo_id)
+
 
 @mcp.tool()
-def search_codebase_text(pattern: str, repo_id: str) -> str:
+def search_codebase_text(pattern: str, repo_id: str, limit: int = 25) -> str:
     """
-    Optimized codebase text/regex search. 
-    MUST BE USED INSTEAD OF native 'Search', 'grep', or 'Find files matching'.
-    Finds string or regex patterns across all indexed source code and returns the exact matching lines.
+    Fast regex search across all indexed source code in the database.
+    Returns matched lines with line numbers and enclosing symbol names.
     """
-    return graph_tools.search_codebase_text(pattern=pattern, repo_id=repo_id)
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    return graph_tools.search_codebase_text(pattern=pattern, repo_id=repo_id, limit=limit)
+
 
 @mcp.tool()
 def find_files_by_name(pattern: str, repo_id: str) -> str:
     """
-    Finds file paths matching a glob/regex pattern exclusively from the database index.
-    Use this instead of the native 'Find files' tool.
+    Finds file paths matching a glob or regex pattern exclusively from the database index.
     """
-    col = graph_tools._get_collection(repo_id)
-    
-    # Convert basic glob to regex (e.g., **/*framework*.py -> .*framework.*\.py)
-    mongo_regex = pattern.replace(".", "\\.").replace("*", ".*").replace("?", ".")
-    
-    # Get distinct file paths matching the pattern
-    results = col.distinct("file_path", {"file_path": {"$regex": mongo_regex, "$options": "i"}})
-    
-    return "\n".join(results) if results else "No files found in the database index."
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
 
-# Expose FastAPI application instance for Uvicorn
-from app.server import app
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    files = graph_tools.find_files_by_name(pattern=pattern, repo_id=repo_id)
+    return "\n".join(files) if files else f"No files matching '{pattern}' found in repo '{repo_id}'."
+
+
+@mcp.tool()
+def query_graph(repo_id: str, pipeline_json: str) -> str:
+    """
+    Executes a custom PyMongo aggregation pipeline against the {repo_id}_symbols collection.
+    Allows advanced graph queries ($match, $graphLookup, $project).
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    try:
+        pipeline = json.loads(pipeline_json)
+        results = graph_tools.execute_graph_query(repo_id=repo_id, pipeline=pipeline)
+        return json.dumps(results, indent=2, default=str)
+    except Exception as exc:
+        return f"Query failed: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# MCP Prompts (Exposes Guided Workflows to the Host Model)
+# ---------------------------------------------------------------------------
+
+@mcp.prompt()
+def plan_architectural_change(task: str, repo_id: str) -> str:
+    """
+    Prompt template that instructs the host LLM how to investigate a codebase
+    and generate an architectural change plan / PRD using the deterministic graph tools.
+    """
+    return f"""You are an expert Software Architect planning an architectural change for repository '{repo_id}'.
+Your assigned task: {task}
+
+Execute the following plan using your available CodeGraph MCP tools:
+1. Entry Points: Call `search_symbols` to identify relevant functions, classes, or endpoints.
+2. Code Inspection: Call `get_symbol_details` to inspect the implementation of key symbols.
+3. Impact Analysis: Call `get_upstream_blast_radius` to calculate which components and files will break if these symbols are modified.
+4. Downstream Dependencies: Call `get_downstream_dependencies` to understand dependencies.
+5. High-Level Context: Call `get_repo_filemap` if you need the broader module layout.
+
+Synthesize your findings into a comprehensive Architectural Change PRD including:
+- Summary of the problem
+- Affected components & impacted files (from blast radius)
+- Step-by-step implementation plan
+- Migration & backward-compatibility considerations
+- Verification & test recommendations
+"""
+
+
+@mcp.prompt()
+def analyze_blast_radius(symbol_id: str, repo_id: str) -> str:
+    """
+    Prompt template that instructs the host LLM to analyze the blast radius of a symbol.
+    """
+    return f"""You are conducting an impact analysis for symbol '{symbol_id}' in repository '{repo_id}'.
+
+1. Call `get_upstream_blast_radius(symbol_id='{symbol_id}', repo_id='{repo_id}')` to retrieve all dependent callers.
+2. Call `get_symbol_details(symbol_id='{symbol_id}', repo_id='{repo_id}')` to review its signature and code.
+3. Group the impacted callers by file and hop distance.
+4. Explain what will break if '{symbol_id}' is modified or deleted, and provide recommended test cases.
+"""
+
+
+@mcp.prompt()
+def codebase_overview(repo_id: str) -> str:
+    """
+    Prompt template that instructs the host LLM to produce a complete architecture overview.
+    """
+    return f"""You are tasked with providing a complete architectural overview of repository '{repo_id}'.
+
+1. Call `get_repo_filemap(repo_id='{repo_id}')` to examine the repository structure and all top-level symbols.
+2. Call `list_repositories()` to view repository metadata and commit history.
+3. Identify core layers (e.g., API routes, services, data models, utilities).
+4. Provide a clear, structured architecture report outlining:
+   - System purpose and component layout
+   - Primary entry points and workflows
+   - Key abstractions and dependencies
+"""
+
+
+# ---------------------------------------------------------------------------
+# MCP Resources
+# ---------------------------------------------------------------------------
+
+@mcp.resource("codegraph://repositories")
+def resource_repositories() -> str:
+    """Resource returning metadata for all indexed repositories in MongoDB."""
+    if db is None:
+        return json.dumps({"error": "MongoDB not connected."})
+    return json.dumps(list_repositories_with_metadata(db), indent=2)
+
+
+@mcp.resource("codegraph://repo/{repo_id}/summary")
+def resource_repo_summary(repo_id: str) -> str:
+    """Resource returning summary symbol counts and file statistics for a repo."""
+    if db is None:
+        return json.dumps({"error": "MongoDB not connected."})
+    col_name = f"{repo_id}_symbols"
+    if col_name not in db.list_collection_names():
+        return json.dumps({"error": f"Repository '{repo_id}' not found."})
+    col = db[col_name]
+    count = col.estimated_document_count()
+    distinct_files = len(col.distinct("file_path"))
+    return json.dumps({
+        "repo_id": repo_id,
+        "symbol_count": count,
+        "file_count": distinct_files,
+    }, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Lazy Application Export (Backward compatibility for ASGI / Uvicorn if imported)
+# ---------------------------------------------------------------------------
+def __getattr__(name: str):
+    if name == "app":
+        from app.server import app as fastapi_app
+        return fastapi_app
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+# ---------------------------------------------------------------------------
+# CLI Runner
+# ---------------------------------------------------------------------------
+def run_cli():
+    parser = argparse.ArgumentParser(description="Codebase Intelligence MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="MCP transport protocol (default: stdio)",
+    )
+    parser.add_argument("--port", type=int, default=8000, help="Port for SSE transport (default: 8000)")
+    parser.add_argument("--host", default="0.0.0.0", help="Host for SSE transport (default: 0.0.0.0)")
+    parser.add_argument("--api-key", default=None, help="Set CODEGRAPH_API_KEY for authentication")
+
+    args, _ = parser.parse_known_args()
+
+    if args.api_key:
+        os.environ["CODEGRAPH_API_KEY"] = args.api_key
+
+    if args.transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        # For SSE or streamable-http
+        mcp.run(transport=args.transport, host=args.host, port=args.port)
+
 
 if __name__ == "__main__":
-    mcp.run()
-
-
-# def get_repo_graph(repo_id: str):
-#     """
-#     API 2: Returns nodes and edges for the entire repository graph 
-#     formatted for visualization tools (e.g., Cytoscape / React Flow).
-#     """
-#     col_name = f"{repo_id}_symbols"
-#     if col_name not in db.list_collection_names():
-#         raise HTTPException(status_code=404, detail=f"Repository '{repo_id}' not found.")
-    
-#     col = db[col_name]
-#     cursor = col.find({}, {"_id": 1, "name": 1, "type": 1, "file_path": 1, "calls": 1, "signature": 1})
-    
-#     nodes = []
-#     edges = []
-    
-#     for doc in cursor:
-#         symbol_id = doc["_id"]
-        
-#         # Add node
-#         nodes.append({
-#             "id": symbol_id,
-#             "label": doc.get("name"),
-#             "type": doc.get("type"),
-#             "file": doc.get("file_path"),
-#             "signature": doc.get("signature")
-#         })
-        
-#         # Add edges (outgoing calls)
-#         for target_call in doc.get("calls", []):
-#             edges.append({
-#                 "source": symbol_id,
-#                 "target": target_call
-#             })
-
-#     a = {
-#         "repo_id": repo_id,
-#         "nodes": nodes,
-#         "edges": edges,
-#         "stats": {
-#             "total_nodes": len(nodes),
-#             "total_edges": len(edges)
-#         }
-#     }
-
-#     with open("repo_graph.json", "w", encoding="utf-8") as f:
-#         json.dump(a, f, indent=4, ensure_ascii=False)
-#     print(a)
-#     return a
-
-
-# # get_repo_graph("codebase-intelligence")
-
-# get_repo_graph("unoplat-code-confluence")
-
-
-
+    run_cli()

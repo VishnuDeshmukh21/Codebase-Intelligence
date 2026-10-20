@@ -1,27 +1,30 @@
-# Codebase Intelligence: Deterministic AST & Graph Planning Agent
+# Codebase Intelligence: Plug-and-Play Model Context Protocol (MCP) Server
 
-Codebase Intelligence is an enterprise-grade agentic planning service and Model Context Protocol (MCP) server that transforms Python codebases into queryable, deterministic graph databases. 
+[![MCP Native](https://img.shields.io/badge/MCP-Protocol_2.0-blue.svg)](https://modelcontextprotocol.io/)
+[![Zero Server LLM Keys](https://img.shields.io/badge/LLM_Keys-Bring_Your_Own_Model-brightgreen.svg)]()
+[![Deterministic AST](https://img.shields.io/badge/Graph-Deterministic_AST_CPG-purple.svg)]()
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
 
-Standard LLM RAG pipelines rely on arbitrary text chunking and vector similarity, leading to hallucinations and missing dependencies. Codebase Intelligence bypasses this entirely by parsing the **Abstract Syntax Tree (AST)** to extract strict programmatic relationships (callers, callees, variables, imports, arguments, I/O) and storing them in MongoDB. LangGraph AI agents can then write deterministic graph queries (`$graphLookup`) to perform 100% accurate blast-radius calculations and architectural planning.
+**Codebase Intelligence** is a **plug-and-play Model Context Protocol (MCP) server** that turns any Python codebase into a deterministic Code Property Graph (CPG) in MongoDB. 
 
-## 🚀 Core Features
+Instead of running an isolated web service with a separate UI and separate LLM keys, Codebase Intelligence plugs directly into your existing AI applications, IDEs, and bots (Cursor, Claude Desktop, VS Code Cline, Slack bots, custom agents). 
 
-- **Public Git Repository Indexing:** Point the service to any public Git repository URL (e.g. GitHub, GitLab, Bitbucket). The service automatically performs shallow clones (`--depth 1`) in seconds, tracks commit/branch metadata, and maps AST symbols into MongoDB collections.
-- **Deterministic AST Graphing:** Two-pass parsing resolves classes, methods, and functions to their Fully Qualified Names (FQNs) and maps structural edges, ignoring arbitrary text files.
-- **Official Google GenAI SDK (`google-genai`):** Modern Gemini integration powered by the official Google GenAI SDK with support for `gemini-3.8-flash`, robust `.env` handling, and zero legacy deprecation warnings.
-- **Failover LLM Routing:** Built-in resilience with support for Google Gemini and Hugging Face providers.
-- **LangGraph Multi-Step Reasoning Agent:** Automated planning, tool calling, graph reflection, human-in-the-loop (HITL) review gates, and comprehensive architectural PRD/spec generation.
-- **Interactive Web Cockpit UI & Real-Time SSE:** Real-time event streaming (`/api/agent/stream`) and interactive web dashboard for indexing repos and chatting with the planning agent.
-- **MCP-Native:** Exposes deterministic tools directly to AI coding agents (Claude Code, Cursor, VS Code) via FastMCP.
+> **Bring Your Own Model:** The MCP server requires **ZERO server-side LLM keys** (no Gemini key, no OpenAI key). It provides 100% deterministic AST parsing, `$graphLookup` blast-radius calculations, and dependency subgraphs. Your host agent (GPT-4o, Claude 3.7 Sonnet, Ollama, etc.) acts as the brain that reasons and calls the tools.
 
-## 📋 Prerequisites
+---
 
-- **Python 3.10+** (tested on Python 3.12 - 3.14)
-- **Git** (for cloning public repositories)
-- **MongoDB Atlas** or a local MongoDB instance.
-- **Google Gemini API Key** (from [Google AI Studio](https://aistudio.google.com/))
+## ⚡ Key Highlights
 
-## 🛠️ Installation & Setup
+- 🔌 **Plug & Play Everywhere:** Plug directly into Cursor, Claude Desktop, VS Code (Cline/Roo-Code), Claude Code, or any custom agent (e.g. a company Slack Bot).
+- 🧠 **Zero Server-Side LLM Dependency:** No Gemini API key or proprietary LLM lock-in. When a client plugs in this server, it utilizes the host's models.
+- 🔑 **Plug-and-Play Authentication:** Secure API key validation (`CODEGRAPH_API_KEY`) with a built-in CLI manager (`python -m app.auth_cli create-key`). No web UI or registration portal needed.
+- 🌐 **Dual Transports:** Supports standard `stdio` (for local processes and IDEs) and `sse` / `streamable-http` (for network/cloud bot integrations).
+- 🎯 **100% Deterministic AST Traversals:** Bypasses vector RAG chunking and hallucinated imports. Uses MongoDB `$graphLookup` for programmatic caller/callee graphs and blast-radius tracing.
+- 📦 **Git & Local Repo Indexing:** Point it at public Git URLs (`https://github.com/owner/repo`) or local directories.
+
+---
+
+## 🛠️ Quick Installation
 
 1. **Clone the repository:**
    ```bash
@@ -34,75 +37,143 @@ Standard LLM RAG pipelines rely on arbitrary text chunking and vector similarity
    pip install -r requirements.txt
    ```
 
-3. **Configure Environment Variables:**
-   Copy `.env.example` to `app/.env` (or project root):
+3. **Configure Environment:**
+   Set `MONGODB_URI` in `.env` (Atlas or local MongoDB):
    ```env
-   MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
-   LLM_PROVIDER=gemini
-   GEMINI_MODEL=gemini-3.8-flash
-   GEMINI_API_KEY=your_gemini_api_key_here
-   REPOS_STORAGE_DIR=./storage/repos
+   MONGODB_URI=mongodb://localhost:27017
+   # Optional: set master key or require auth
+   CODEGRAPH_AUTH_REQUIRED=true
    ```
 
-4. **Run the API & Web Cockpit Server:**
+---
+
+## 🔑 Plug-and-Play Authentication (Zero UI)
+
+Create, list, and revoke API keys with zero UI via the built-in CLI:
+
+```bash
+# Generate an API key for your client or agent
+python -m app.auth_cli create-key --name "Slack Bot" --tenant "engineering"
+
+# List active keys
+python -m app.auth_cli list-keys
+
+# Verify or revoke a key
+python -m app.auth_cli verify-key cg_live_xxxxxxxxxxxxxxxxxxxx
+python -m app.auth_cli revoke-key key_511d219491cc
+```
+
+---
+
+## 🔌 Plugging into Your Tools
+
+### 1. Cursor IDE
+1. Open **Cursor Settings** -> **Features** -> **MCP**.
+2. Click **Add new MCP server**.
+3. Choose type `command`.
+4. Command:
    ```bash
-   uvicorn app.server:app --host 0.0.0.0 --port 8000 --reload
+   python -m app.main
    ```
-   Open `http://localhost:8000` in your browser to access the Web Cockpit.
-
-5. **Index a Public Repository via API:**
-   ```bash
-   curl -X POST http://localhost:8000/api/repos/index \
-     -H "Content-Type: application/json" \
-     -d '{"repo_url": "https://github.com/pallets/flask.git"}'
+5. In environment variables, add:
+   ```json
+   {
+     "PYTHONPATH": "/absolute/path/to/codegraph-mcp/backend",
+     "MONGODB_URI": "mongodb://localhost:27017",
+     "CODEGRAPH_API_KEY": "cg_live_your_key_here"
+   }
    ```
 
-
-## 🔌 Connecting to VS Code / AI Agents
-
-This server uses the open **Model Context Protocol (MCP)**, meaning it can be plugged directly into modern AI IDEs and extensions to give your AI assistant deep, graph-level understanding of your code.
-
-### Option 1: VS Code (via Cline / Roo Code extension)
-If you are using an MCP-compatible VS Code extension like Cline, add the following to your `cline_mcp.json` file (usually located in `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp.json`):
+### 2. Claude Desktop (`claude_desktop_config.json`)
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
     "CodeGraph": {
       "command": "python",
-      "args": [
-        "/absolute/path/to/codegraph-mcp/app/main.py"
-      ],
+      "args": ["-m", "app.main"],
+      "cwd": "/absolute/path/to/codegraph-mcp/backend",
       "env": {
+        "PYTHONPATH": "/absolute/path/to/codegraph-mcp/backend",
         "MONGODB_URI": "mongodb://localhost:27017",
-        "GEMINI_API_KEY": "your_api_key"
+        "CODEGRAPH_API_KEY": "cg_live_your_key_here"
       }
     }
   }
 }
 ```
 
-### Option 2: Cursor IDE
-1. Open Cursor Settings -> Features -> MCP.
-2. Click **Add new MCP server**.
-3. Set the type to `command`.
-4. Name it `CodeGraph`.
-5. Command: `python /absolute/path/to/codegraph-mcp/app/main.py`
-6. Click Save. Your AI agent can now use the `index_repository`, `get_upstream_blast_radius`, and `plan_architectural_change` tools directly in the chat.
+### 3. VS Code (Cline / Roo-Code Extension)
+Add to your `cline_mcp.json`:
 
-### Option 3: Claude Code (CLI)
-Run the following command in your terminal to expose the server to Claude Code:
-```bash
-claude mcp add CodeGraph python /absolute/path/to/codegraph-mcp/app/main.py
+```json
+{
+  "mcpServers": {
+    "CodeGraph": {
+      "command": "python",
+      "args": ["-m", "app.main"],
+      "cwd": "/absolute/path/to/codegraph-mcp/backend",
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/codegraph-mcp/backend",
+        "MONGODB_URI": "mongodb://localhost:27017",
+        "CODEGRAPH_API_KEY": "cg_live_your_key_here"
+      }
+    }
+  }
+}
 ```
 
-## 🧰 Available MCP Tools
+### 4. Claude Code (CLI)
+```bash
+claude mcp add CodeGraph python -m app.main
+```
 
-Once connected, your AI agent will automatically have access to these deterministic tools:
+### 5. Slack Bot / Custom AI Agents
+See the full guide in [docs/SLACK_INTEGRATION.md](docs/SLACK_INTEGRATION.md).
 
-- `index_repository`: Compiles the target directory into the MongoDB AST graph.
-- `search_symbols`: Locates entry points via lightweight IDs.
-- `get_symbol_details`: Reads exact source code and direct outgoing calls for a specific ID.
-- `get_upstream_blast_radius`: Identifies all parent functions/classes that depend on a target symbol.
-- `get_downstream_dependencies`: Traces execution flow to retrieve all nested dependencies.
-- `plan_architectural_change`: Converts natural language into a PyMongo `$graphLookup` aggregation pipeline to programmatically map architecture changes.
+Run the included simulation to see an agent connect and query CodeGraph over MCP:
+```bash
+python examples/slack_agent_example.py --simulate "What breaks if I change dispatch_request in flask?"
+```
+
+---
+
+## 🧰 Available MCP Capabilities
+
+### Deterministic Tools
+| Tool Name | Description |
+|---|---|
+| `index_repository` | Shallow clones remote Git repo or scans local path into MongoDB AST symbols. |
+| `list_repositories` | Lists all indexed repositories, commit hashes, branches, and symbol counts. |
+| `get_repo_filemap` | Generates a complete directory tree + symbol manifest for high-level architecture tasks. |
+| `search_symbols` | Exact / regex symbol discovery for classes, functions, and methods. |
+| `get_symbol_details` | Retrieves full Python source code, line numbers, docstrings, and direct calls. |
+| `get_upstream_blast_radius` | Reverse graph traversal (`$graphLookup`) determining all breaking changes and impacted files. |
+| `get_downstream_dependencies` | Traces nested execution flow and retrieves all downstream callees with code. |
+| `get_dependency_subgraph_code` | Consolidates complete source code for a symbol and its connected neighborhood. |
+| `read_file_content` | Reads file content directly from the AST database index without touching disk. |
+| `search_codebase_text` | Fast regex search across all indexed code with line numbers and enclosing symbols. |
+| `find_files_by_name` | Glob/regex file path search within the database index. |
+| `query_graph` | Safe PyMongo aggregation runner for custom graph traversal queries. |
+
+### MCP Prompts (Workflow Blueprints for Host Models)
+- `plan_architectural_change(task, repo_id)`: Blueprints multi-step architectural planning for the host agent.
+- `analyze_blast_radius(symbol_id, repo_id)`: Guides the host agent through impact analysis and test planning.
+- `codebase_overview(repo_id)`: Guides the host agent to synthesize a complete architectural report.
+
+### MCP Resources
+- `codegraph://repositories`: Real-time JSON manifest of indexed repositories.
+- `codegraph://repo/{repo_id}/summary`: Repository symbol count and file statistics.
+
+---
+
+## 🧪 Testing
+
+Run the test suite to verify the MCP server, auth manager, and tools:
+
+```bash
+cd backend
+$env:PYTHONPATH="."
+python -m pytest tests/test_mcp_server.py
+```

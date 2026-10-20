@@ -1,6 +1,7 @@
 from typing import Dict, List, Any
 from pymongo.database import Database
 import re
+
 class CodeGraphTools:
     def __init__(self, db: Database):
         self.db = db
@@ -84,7 +85,8 @@ class CodeGraphTools:
                     "file": d.get("file_path", ""),
                     "lines": f"{d.get('start_line')}-{d.get('end_line')}",
                     "hops_from_target": d["hop_distance"] + 1,
-                    "signature": d.get("signature", "")                }
+                    "signature": d.get("signature", "")
+                }
                 for d in dependents
             ]
         }
@@ -253,3 +255,83 @@ class CodeGraphTools:
                 for d in docs
             ]
         }
+
+    def get_repo_filemap(self, repo_id: str) -> Dict[str, Any]:
+        """
+        Returns a structured map of all files and their top-level symbols for a repository.
+        Enables host AI agents to quickly understand the whole codebase architecture.
+        """
+        col = self._get_collection(repo_id)
+        cursor = col.find(
+            {},
+            {"_id": 1, "name": 1, "type": 1, "file_path": 1, "signature": 1, "start_line": 1, "end_line": 1}
+        )
+
+        file_map: Dict[str, list] = {}
+        for doc in cursor:
+            fp = doc.get("file_path", "unknown")
+            if fp not in file_map:
+                file_map[fp] = []
+            file_map[fp].append({
+                "id": doc["_id"],
+                "name": doc.get("name"),
+                "type": doc.get("type"),
+                "signature": doc.get("signature"),
+                "lines": f"{doc.get('start_line')}-{doc.get('end_line')}",
+            })
+
+        for fp in file_map:
+            file_map[fp].sort(key=lambda s: int((s.get("lines") or "0").split("-")[0] or 0))
+
+        return {
+            "repo_id": repo_id,
+            "total_files": len(file_map),
+            "total_symbols": sum(len(v) for v in file_map.values()),
+            "file_map": file_map,
+        }
+
+    def read_file_content(self, file_path: str, repo_id: str) -> str:
+        """
+        Reads module or file content directly from the AST database index.
+        """
+        col = self._get_collection(repo_id)
+
+        # 1. Try to fetch the full module file
+        doc = col.find_one({"file_path": file_path, "type": "module"})
+        if doc:
+            code = doc.get("source_code", "")
+            calls = doc.get("calls", [])
+            deps_str = "\n".join([f"- {c}" for c in calls]) if calls else "None"
+            return f"File: {file_path}\n\nCode:\n```python\n{code}\n```\n\nDependencies (Calls):\n{deps_str}"
+
+        # 2. Fallback: concatenate symbol source codes if module doc is missing
+        symbols = list(col.find({"file_path": file_path}).sort("start_line", 1))
+        if not symbols:
+            return f"Error: File '{file_path}' not found in the database index."
+
+        code_blocks = []
+        all_calls = set()
+        for s in symbols:
+            if s.get("source_code"):
+                code_blocks.append(f"# Symbol: {s['_id']}\n{s['source_code']}")
+            for call in s.get("calls", []):
+                all_calls.add(call)
+
+        code = "\n\n".join(code_blocks)
+        deps_str = "\n".join([f"- {c}" for c in sorted(all_calls)]) if all_calls else "None"
+        return f"File: {file_path}\n\nCode:\n```python\n{code}\n```\n\nDependencies (Calls):\n{deps_str}"
+
+    def find_files_by_name(self, pattern: str, repo_id: str) -> List[str]:
+        """
+        Finds file paths matching a glob/regex pattern from the database index.
+        """
+        col = self._get_collection(repo_id)
+        mongo_regex = pattern.replace(".", "\\.").replace("*", ".*").replace("?", ".")
+        return col.distinct("file_path", {"file_path": {"$regex": mongo_regex, "$options": "i"}})
+
+    def execute_graph_query(self, repo_id: str, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Executes an aggregation pipeline against {repo_id}_symbols.
+        """
+        col = self._get_collection(repo_id)
+        return list(col.aggregate(pipeline))

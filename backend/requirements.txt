@@ -1,48 +1,26 @@
-# API
-fastapi
-uvicorn[standard]
+# Model Context Protocol (MCP) Server
+mcp>=1.0.0
+pymongo>=4.6.0
+python-dotenv>=1.0.0
+structlog>=24.1.0
 
-# Auth — JWT & Password Hashing
-python-jose[cryptography]
-passlib[bcrypt]
+# Repository Parsing & Git AST Indexing
+pathspec>=0.12.1
+chardet>=5.2.0
 
-# Configuration
-python-dotenv
-pydantic-settings
+# Optional Web Service & Cockpit (if running legacy HTTP/SSE mode)
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic-settings>=2.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
 
-# HTTP
-httpx
-
-# Code / file handling
-pathspec
-chardet
-
-# AI / LLM
-openai
-google-genai
-
-# Embeddings
-sentence-transformers
-
-# Vector database
-chromadb-client
-
-# Utilities
-tiktoken
+# Optional Failover LLM Providers (Only required if running internal agent loops)
+google-genai>=0.1.1
+google-generativeai>=0.8.0
+openai>=1.14.0
 
 # Testing
-pytest
-pytest-asyncio
-httpx
-
-mcp<2
-pymongo
-
-google-generativeai
-structlog
-langgraph
-langgraph-checkpoint-mongodb
-python-jose
-
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0
