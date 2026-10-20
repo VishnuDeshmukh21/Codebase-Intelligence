@@ -819,12 +819,17 @@
       showAuthView(message, "info");
     }
 
-    async function authFetch(url, options = {}) {
+    function authHeaders(extra = {}) {
       const token = getAuthToken();
-      const headers = Object.assign({}, options.headers || {});
+      const headers = Object.assign({}, extra);
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
+      return headers;
+    }
+
+    async function authFetch(url, options = {}) {
+      const headers = authHeaders(options.headers || {});
       options.headers = headers;
 
       const res = await fetch(url, options);
@@ -1886,10 +1891,11 @@
       if (!listEl) return;
       listEl.innerHTML = `<div class="text-slate-500 text-center py-3">Loading keys...</div>`;
       try {
-        const res = await fetch(`${API_BASE_URL}/api/keys`, {
-          headers: authHeaders()
-        });
-        if (!res.ok) throw new Error("Failed to load keys");
+        const res = await authFetch(`${API_BASE_URL}/api/keys`);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to load keys");
+        }
         const data = await res.json();
         const keys = data.keys || [];
         if (keys.length === 0) {
@@ -1919,12 +1925,15 @@
       const nameInput = document.getElementById("newKeyNameInput");
       const name = nameInput.value.trim() || "My Agent";
       try {
-        const res = await fetch(`${API_BASE_URL}/api/keys/generate`, {
+        const res = await authFetch(`${API_BASE_URL}/api/keys/generate`, {
           method: "POST",
-          headers: authHeaders({ "Content-Type": "application/json" }),
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name })
         });
-        if (!res.ok) throw new Error("Failed to generate key");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to generate key");
+        }
         const data = await res.json();
         lastCreatedKey = data.api_key;
         
@@ -1942,11 +1951,13 @@
     async function handleRevokeKey(keyId) {
       if (!confirm("Are you sure you want to revoke this API key? Any agents using it will immediately lose access.")) return;
       try {
-        const res = await fetch(`${API_BASE_URL}/api/keys/${keyId}`, {
-          method: "DELETE",
-          headers: authHeaders()
+        const res = await authFetch(`${API_BASE_URL}/api/keys/${keyId}`, {
+          method: "DELETE"
         });
-        if (!res.ok) throw new Error("Failed to revoke key");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to revoke key");
+        }
         loadMcpKeys();
       } catch (err) {
         alert("Error revoking key: " + err.message);
