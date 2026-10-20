@@ -325,7 +325,7 @@
 
       <!-- Live MCP URL -->
       <div class="bg-surface-base border border-surface-border rounded-lg p-3 mb-4">
-        <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Live MCP Server URL (SSE Transport):</span>
+        <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Live MCP Server URL (Streamable HTTP / SSE):</span>
         <div class="flex items-center justify-between font-mono text-xs text-emerald-400 bg-black/40 px-3 py-2 rounded border border-white/5">
           <span id="mcpEndpointUrl" class="truncate mr-2">Loading...</span>
           <button onclick="copyMcpUrl()" class="text-slate-300 hover:text-white text-xs flex items-center gap-1 shrink-0 bg-white/5 px-2 py-1 rounded">
@@ -1864,7 +1864,7 @@
       const modal = document.getElementById("mcpModal");
       modal.classList.toggle("hidden");
       if (!modal.classList.contains("hidden")) {
-        const fullUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, "") + "/mcp/sse";
+        const fullUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, "") + "/mcp";
         document.getElementById("mcpEndpointUrl").innerText = fullUrl;
         loadMcpKeys();
       }

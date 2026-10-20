@@ -137,10 +137,16 @@ async def lifespan(app: FastAPI):
     app.state.agent_app = agent_app
     app.state.mongo_uri = mongo_uri
 
-    yield
-
-    log.info("server.shutdown")
-    client.close()
+    try:
+        # Run MCP session manager for Streamable HTTP transport if available
+        if hasattr(mcp, "session_manager") and mcp.session_manager is not None:
+            async with mcp.session_manager.run():
+                yield
+        else:
+            yield
+    finally:
+        log.info("server.shutdown")
+        client.close()
 
 
 app = FastAPI(
@@ -158,11 +164,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount live MCP Server SSE application for remote agent connections
+# ---------------------------------------------------------------------------
+# MCP Server Transport Setup (Streamable HTTP + SSE)
+# ---------------------------------------------------------------------------
 try:
-    app.mount("/mcp", mcp.sse_app())
+    from starlette.routing import Route
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    # Allow remote MCP connections across IP / reverse-proxy without DNS rebinding rejection
+    mcp_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+except Exception:
+    mcp_security = None
+
+mcp_streamable_app = None
+mcp_sse_app = None
+
+try:
+    if hasattr(mcp, "streamable_http_app"):
+        mcp_streamable_app = mcp.streamable_http_app(
+            transport_security=mcp_security,
+            streamable_http_path="/mcp",
+        )
+    if hasattr(mcp, "sse_app"):
+        mcp_sse_app = mcp.sse_app(
+            transport_security=mcp_security,
+            message_path="/mcp/messages/",
+        )
 except Exception as exc:
-    log.warning("server.mcp_mount_failed", error=str(exc))
+    log.warning("server.mcp_init_failed", error=str(exc))
+
+# 1. Mount Streamable HTTP (modern MCP standard used by Antigravity, Cursor, etc. via POST)
+if mcp_streamable_app is not None and getattr(mcp_streamable_app, "routes", None):
+    endpoint = mcp_streamable_app.routes[0].endpoint
+    app.router.routes.append(Route("/mcp", endpoint=endpoint, methods=["GET", "POST", "DELETE"]))
+    app.router.routes.append(Route("/mcp/", endpoint=endpoint, methods=["GET", "POST", "DELETE"]))
+    # Also handle POST /mcp/sse so clients configured with /mcp/sse work seamlessly
+    app.router.routes.append(Route("/mcp/sse", endpoint=endpoint, methods=["POST"]))
+
+# 2. Mount SSE Transport (for legacy MCP clients expecting GET /sse or GET /mcp/sse)
+if mcp_sse_app is not None:
+    try:
+        app.mount("/sse", mcp_sse_app)
+        if len(mcp_sse_app.routes) > 0:
+            sse_get_endpoint = mcp_sse_app.routes[0].endpoint
+            app.router.routes.append(Route("/mcp/sse", endpoint=sse_get_endpoint, methods=["GET"]))
+        if len(mcp_sse_app.routes) > 1 and hasattr(mcp_sse_app.routes[1], "app"):
+            app.mount("/mcp/messages", mcp_sse_app.routes[1].app)
+    except Exception as exc:
+        log.warning("server.mcp_sse_mount_failed", error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -405,12 +454,24 @@ def generate_mcp_key(body: CreateKeyRequest, request: Request, current_user: dic
         tenant_id=current_user.get("sub", "default"),
     )
     base_url = str(request.base_url).rstrip("/")
-    mcp_endpoint = f"{base_url}/mcp/sse"
+    mcp_endpoint = f"{base_url}/mcp"
+    mcp_sse_endpoint = f"{base_url}/mcp/sse"
     return {
         "api_key": raw_key,
         "key_info": info,
         "mcp_url": mcp_endpoint,
+        "mcp_sse_url": mcp_sse_endpoint,
         "configs": {
+            "antigravity": {
+                "mcpServers": {
+                    "CodeGraph": {
+                        "url": mcp_endpoint,
+                        "headers": {
+                            "Authorization": f"Bearer {raw_key}"
+                        }
+                    }
+                }
+            },
             "cursor": {
                 "mcpServers": {
                     "CodeGraph": {
