@@ -9,10 +9,12 @@ if MongoDB is offline.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 import hashlib
 import json
 import os
 import secrets
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +24,13 @@ import structlog
 from pymongo.database import Database
 
 log = structlog.get_logger()
+
+
+if hasattr(sys, "_codegraph_current_request_api_key"):
+    current_request_api_key: ContextVar[Optional[str]] = sys._codegraph_current_request_api_key
+else:
+    current_request_api_key: ContextVar[Optional[str]] = ContextVar("current_request_api_key", default=None)
+    sys._codegraph_current_request_api_key = current_request_api_key
 
 KEY_PREFIX = "cg_live_"
 STORAGE_DIR = Path(__file__).resolve().parent.parent / "storage" / "keys"
@@ -123,7 +132,14 @@ class MCPAuthManager:
         if auth_required_env in ("false", "0", "no", "off"):
             return True, None, {"tenant_id": "anonymous", "name": "Auth Disabled", "status": "active"}
 
-        candidate_key = (raw_key or os.environ.get("CODEGRAPH_API_KEY", "")).strip()
+        candidate_key = (
+            raw_key
+            or current_request_api_key.get() or ""
+        ).strip()
+
+        # Strip optional 'Bearer ' prefix if accidentally included
+        if candidate_key.lower().startswith("bearer "):
+            candidate_key = candidate_key[7:].strip()
 
         # 2. Check environment master key / local dev bypass
         master_key = os.environ.get("CODEGRAPH_MASTER_KEY", "").strip()

@@ -20,10 +20,11 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from typing import Any, AsyncGenerator, Iterator, Optional
+from typing import Any, AsyncGenerator, Dict, Iterator, Optional
 
 import structlog
 from dotenv import load_dotenv
@@ -32,6 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # Ensure app/ is in sys.path
 sys.path.insert(0, os.path.dirname(__file__))
@@ -64,7 +66,8 @@ from repo_manager import (
     resolve_repository_source,
     sanitize_repo_id,
 )
-from auth_mcp import MCPAuthManager
+
+from app.auth_mcp import MCPAuthManager, current_request_api_key
 from main import mcp
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
@@ -163,6 +166,71 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# MCP Authentication Middleware (Preserves Bearer token for MCP Tools)
+# ---------------------------------------------------------------------------
+_sse_session_keys: Dict[str, str] = {}
+
+
+class MCPApiKeyMiddleware:
+    """
+    Extracts Bearer token or API key from HTTP headers, query parameters,
+    or SSE session mappings, and binds it to current_request_api_key ContextVar.
+    """
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "http":
+            token = None
+
+            # 1. Check HTTP Headers (Authorization: Bearer <key> or X-API-Key)
+            for raw_k, raw_v in scope.get("headers", []):
+                k = raw_k.decode("latin1", errors="ignore").lower()
+                if k == "authorization":
+                    v = raw_v.decode("latin1", errors="ignore").strip()
+                    if v.lower().startswith("bearer "):
+                        token = v[7:].strip()
+                    elif v:
+                        token = v
+                elif k == "x-api-key" and not token:
+                    token = raw_v.decode("latin1", errors="ignore").strip()
+
+            # 2. Check query params fallback (?api_key=... or ?token=...)
+            query_string = scope.get("query_string", b"").decode("latin1", errors="ignore")
+            session_id = None
+            if query_string:
+                try:
+                    params = urllib.parse.parse_qs(query_string)
+                    if not token:
+                        for qk in ("api_key", "token", "key", "code_graph_key"):
+                            if qk in params and params[qk]:
+                                token = params[qk][0].strip()
+                                break
+                    session_id = params.get("session_id", [None])[0]
+                except Exception:
+                    pass
+
+            # 3. Associate with or retrieve from SSE session
+            if session_id:
+                if token:
+                    _sse_session_keys[session_id] = token
+                elif session_id in _sse_session_keys:
+                    token = _sse_session_keys[session_id]
+
+            if token:
+                token_reset = current_request_api_key.set(token)
+                try:
+                    await self.app(scope, receive, send)
+                finally:
+                    current_request_api_key.reset(token_reset)
+                return
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(MCPApiKeyMiddleware)
 
 # ---------------------------------------------------------------------------
 # MCP Server Transport Setup (Streamable HTTP + SSE)

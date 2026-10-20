@@ -89,6 +89,48 @@ def test_auth_manager_lifecycle():
     assert "status 'revoked'" in err
 
 
+def test_mcp_bearer_auth_middleware():
+    """Verify that HTTP middleware automatically extracts Bearer token and validates it."""
+    from starlette.testclient import TestClient
+    from app.server import app
+    from app.main import _check_auth
+
+    manager = MCPAuthManager(None)
+    raw_key, info = manager.generate_api_key(name="Bearer Test Client")
+
+    @app.get("/_test_mcp_auth")
+    def _test_route():
+        return {"err": _check_auth()}
+
+    client = TestClient(app)
+
+    try:
+        os.environ["CODEGRAPH_AUTH_REQUIRED"] = "true"
+        os.environ.pop("CODEGRAPH_API_KEY", None)
+
+        # 1. Without header -> Fails
+        res_no_auth = client.get("/_test_mcp_auth")
+        assert "[Authentication Error]" in res_no_auth.json()["err"]
+
+        # 2. With Bearer header -> Succeeds
+        res_bearer = client.get("/_test_mcp_auth", headers={"Authorization": f"Bearer {raw_key}"})
+        assert res_bearer.json()["err"] is None
+
+        # 3. With X-API-Key header -> Succeeds
+        res_x_key = client.get("/_test_mcp_auth", headers={"X-API-Key": raw_key})
+        assert res_x_key.json()["err"] is None
+
+        # 4. With query parameter -> Succeeds
+        res_query = client.get(f"/_test_mcp_auth?api_key={raw_key}")
+        assert res_query.json()["err"] is None
+
+        # 5. With invalid Bearer header -> Fails
+        res_invalid = client.get("/_test_mcp_auth", headers={"Authorization": "Bearer cg_live_invalidkey123"})
+        assert "Invalid API key" in res_invalid.json()["err"]
+    finally:
+        manager.revoke_api_key(info["_id"])
+
+
 def test_tool_call_auth_enforcement():
     """Verify that tool calls reject unauthorized access when auth is required."""
     async def _run():
