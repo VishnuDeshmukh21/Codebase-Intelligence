@@ -812,4 +812,11 @@ from auth import RATE_LIMIT_MAX_MESSAGES  # noqa: E402 (re-import for closure ac
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "app.server:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        proxy_headers=True,
+        forwarded_allow_ips="*"
+    )
