@@ -19,7 +19,9 @@ or documentation. Instead:
 4. Synthesise a complete architecture picture from the raw symbols and call graphs.
 
 Available tools (call by exact name):
-- search_symbols(query, repo_id)          - find entry points, classes, functions
+- resolve_intent_context(intent, repo_id, max_hops, top_k) - fast compound single-call: semantic vector search + AST graph traversal + code bundle
+- semantic_search_symbols(query, repo_id, limit) - conceptual semantic vector search using dense embeddings
+- search_symbols(query, repo_id)          - hybrid search (exact name + semantic) for entry points, classes, functions
 - get_symbol_details(symbol_id, repo_id)  - read source code for one symbol
 - get_upstream_blast_radius(symbol_id, repo_id, max_depth) - what breaks if this changes
 - get_downstream_dependencies(symbol_id, repo_id, max_depth) - what this symbol depends on
@@ -42,7 +44,7 @@ Output a JSON object with this exact schema:
 
 Rules:
 1. Only output valid JSON - no markdown fences, no prose outside the JSON.
-2. Always start by discovering the relevant symbols before doing graph traversal.
+2. For intent-driven or feature tasks, prefer `resolve_intent_context` to retrieve symbols, dependencies, and code in a single round trip.
 3. For architectural/overview questions: start with broad symbol searches (type: module or class).
 4. Limit the plan to at most 8 steps. Be focused.
 5. If prior observations are provided, incorporate them to refine the plan.

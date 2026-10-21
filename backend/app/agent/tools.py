@@ -12,7 +12,10 @@ from __future__ import annotations
 import traceback
 from typing import Any
 
-from graph_tools import CodeGraphTools
+try:
+    from graph_tools import CodeGraphTools
+except ImportError:
+    from app.graph_tools import CodeGraphTools
 
 
 class AgentToolkit:
@@ -23,6 +26,8 @@ class AgentToolkit:
 
     TOOL_NAMES = [
         "search_symbols",
+        "semantic_search_symbols",
+        "resolve_intent_context",
         "get_symbol_details",
         "get_upstream_blast_radius",
         "get_downstream_dependencies",
@@ -58,6 +63,20 @@ class AgentToolkit:
 
     def _search_symbols(self, query: str, repo_id: str, limit: int = 10) -> list[dict]:
         return self._gt.search_symbols(query=query, repo_id=repo_id, limit=limit)
+
+    def _semantic_search_symbols(
+        self, query: str, repo_id: str, limit: int = 10, min_score: float = 0.25
+    ) -> list[dict]:
+        return self._gt.semantic_search_symbols(
+            query=query, repo_id=repo_id, limit=limit, min_score=min_score
+        )
+
+    def _resolve_intent_context(
+        self, intent: str, repo_id: str, max_hops: int = 1, top_k: int = 3
+    ) -> dict:
+        return self._gt.resolve_intent_context(
+            intent=intent, repo_id=repo_id, max_hops=max_hops, top_k=top_k
+        )
 
     def _get_symbol_details(self, symbol_id: str, repo_id: str) -> dict:
         return self._gt.get_symbol_details(symbol_id=symbol_id, repo_id=repo_id)

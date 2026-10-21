@@ -147,7 +147,9 @@ python examples/slack_agent_example.py --simulate "What breaks if I change dispa
 | `index_repository` | Shallow clones remote Git repo or scans local path into MongoDB AST symbols. |
 | `list_repositories` | Lists all indexed repositories, commit hashes, branches, and symbol counts. |
 | `get_repo_filemap` | Generates a complete directory tree + symbol manifest for high-level architecture tasks. |
-| `search_symbols` | Exact / regex symbol discovery for classes, functions, and methods. |
+| `resolve_intent_context` | **Single-Call Compound Retrieval:** Maps high-level intent to entry seeds via embeddings, traverses call dependencies via `$graphLookup`, and returns a code manifest in one turn. |
+| `semantic_search_symbols` | **Semantic Vector Search:** Finds symbols by conceptual meaning (e.g. 'catalog configuration') using local 384-dim dense embeddings. |
+| `search_symbols` | **Hybrid Search:** Combines deterministic lexical matching with semantic vector search. |
 | `get_symbol_details` | Retrieves full Python source code, line numbers, docstrings, and direct calls. |
 | `get_upstream_blast_radius` | Reverse graph traversal (`$graphLookup`) determining all breaking changes and impacted files. |
 | `get_downstream_dependencies` | Traces nested execution flow and retrieves all downstream callees with code. |
