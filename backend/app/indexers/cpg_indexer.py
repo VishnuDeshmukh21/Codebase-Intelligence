@@ -10,7 +10,7 @@ except ImportError:
 import ast
 import os
 from pathlib import Path
-from typing import Dict, List, Set, Optional
+from typing import Callable, Dict, List, Set, Optional
 from pymongo import MongoClient, UpdateOne
 import re
 
@@ -26,12 +26,20 @@ except ImportError:
             return clean_name or "default_repo"
 
 class RepoGraphIndexer:
-    def __init__(self, repo_path: str, repo_id: str, mongo_uri: str = "mongodb://localhost:27017", db_name: str = "prode_engine"):
+    def __init__(
+        self,
+        repo_path: str,
+        repo_id: str,
+        mongo_uri: str = "mongodb://localhost:27017",
+        db_name: str = "prode_engine",
+        progress_callback: Optional[Callable[[Dict], None]] = None,
+    ):
         self.repo_path = Path(repo_path).resolve()
         self.repo_id = repo_id
         self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
         self.symbols_col = self.db[f"{self.repo_id}_symbols"]
+        self.progress_callback = progress_callback
         
         self.known_symbols: Set[str] = set()
         self.file_imports: Dict[str, Dict[str, str]] = {}
@@ -45,6 +53,10 @@ class RepoGraphIndexer:
             parts.pop()
         return ".".join(parts)
 
+    def _report_progress(self, **progress):
+        if self.progress_callback:
+            self.progress_callback(progress)
+
     def index_repository(self):
         py_files = [
             p for p in self.repo_path.rglob("*.py")
@@ -52,8 +64,26 @@ class RepoGraphIndexer:
         ]
 
         print(f"[Pass 1] Discovering symbols across {len(py_files)} files...")
-        parsed_trees: Dict[Path, ast.AST] = {}
+        self._report_progress(
+            phase="parsing",
+            total_files=len(py_files),
+            files_completed=0,
+            parsed_files=0,
+            current_file=None,
+            percent=1 if py_files else 20,
+        )
+        parsed_trees: Dict[Path, tuple] = {}
+        parsed_files = 0
+
         for file_path in py_files:
+            self._report_progress(
+                phase="parsing",
+                total_files=len(py_files),
+                files_completed=0,
+                parsed_files=parsed_files,
+                current_file=str(file_path.relative_to(self.repo_path)),
+                percent=5 + int(15 * parsed_files / max(len(py_files), 1)),
+            )
             try:
                 source = file_path.read_text(encoding="utf-8")
                 tree = ast.parse(source, filename=str(file_path))
@@ -61,36 +91,91 @@ class RepoGraphIndexer:
                 self._pass_one_discover(file_path, tree)
             except Exception as e:
                 print(f"Skipping {file_path}: {e}")
+            parsed_files += 1
+            self._report_progress(
+                phase="parsing",
+                total_files=len(py_files),
+                files_completed=0,
+                parsed_files=parsed_files,
+                current_file=None,
+                percent=5 + int(15 * parsed_files / max(len(py_files), 1)),
+            )
 
-        print(f"[Pass 2] Extracting resolved call edges for {len(self.known_symbols)} symbols...")
-        all_docs = []
+        print(f"[Pass 2 & 3] Extracting and incrementally writing documents for {len(self.known_symbols)} symbols...")
+
+        batch_size = 100
+        batch_ops = []
+        total_indexed = 0
+        files_completed = 0
+        embeddings_generated = 0
+
         for file_path, (tree, source) in parsed_trees.items():
+            self._report_progress(
+                phase="embedding",
+                total_files=len(py_files),
+                files_completed=files_completed,
+                parsed_files=parsed_files,
+                current_file=str(file_path.relative_to(self.repo_path)),
+                percent=20 + int(75 * files_completed / max(len(py_files), 1)),
+                symbols_indexed=total_indexed,
+            )
             docs = self._pass_two_extract(file_path, tree, source)
-            all_docs.extend(docs)
 
-        if generate_embeddings and build_symbol_embedding_text and all_docs:
-            print(f"[Pass 3] Generating local vector embeddings for {len(all_docs)} symbols...")
-            try:
-                texts = [build_symbol_embedding_text(doc) for doc in all_docs]
-                embeddings = generate_embeddings(texts, batch_size=64)
-                for doc, emb in zip(all_docs, embeddings):
-                    doc["embedding"] = emb
-                print(f"Generated {len(embeddings)} semantic vectors.")
-            except Exception as e:
-                print(f"Warning: Vector embedding generation failed, continuing: {e}")
+            for doc in docs:
+                if generate_embeddings and build_symbol_embedding_text:
+                    try:
+                        text = build_symbol_embedding_text(doc)
+                        emb = generate_embeddings([text], batch_size=1)
+                        if emb:
+                            doc["embedding"] = emb[0]
+                            embeddings_generated += 1
+                    except Exception as e:
+                        print(f"Embedding failed for {doc['_id']}: {e}")
+                        pass # Skip embedding for this doc if it fails/runs out of memory
 
-        bulk_ops = [
-            UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
-            for doc in all_docs
-        ]
+                batch_ops.append(
+                    UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
+                )
 
-        if bulk_ops:
-            self.symbols_col.bulk_write(bulk_ops)
+                if len(batch_ops) >= batch_size:
+                    self.symbols_col.bulk_write(batch_ops)
+                    total_indexed += len(batch_ops)
+                    batch_ops = []
+
+            files_completed += 1
+            self._report_progress(
+                phase="embedding",
+                total_files=len(py_files),
+                files_completed=files_completed,
+                parsed_files=parsed_files,
+                current_file=None,
+                percent=20 + int(75 * files_completed / max(len(py_files), 1)),
+                symbols_indexed=total_indexed,
+                embeddings_generated=embeddings_generated,
+            )
+
+        # Flush remaining items
+        if batch_ops:
+            self.symbols_col.bulk_write(batch_ops)
+            total_indexed += len(batch_ops)
+
+        # Create indexes safely after writing
+        if total_indexed > 0:
             self.symbols_col.create_index("calls")
             self.symbols_col.create_index("file_path")
             self.symbols_col.create_index("name")
             self.symbols_col.create_index("type")
-            print(f"Indexed {len(bulk_ops)} symbols into collection {self.repo_id}_symbols.")
+            print(f"Successfully indexed {total_indexed} symbols into collection {self.repo_id}_symbols.")
+        self._report_progress(
+            phase="completed",
+            total_files=len(py_files),
+            files_completed=files_completed,
+            parsed_files=parsed_files,
+            current_file=None,
+            percent=100,
+            symbols_indexed=total_indexed,
+            embeddings_generated=embeddings_generated,
+        )
 
     def _pass_one_discover(self, file_path: Path, tree: ast.AST):
         mod_name = self._file_to_module(file_path)

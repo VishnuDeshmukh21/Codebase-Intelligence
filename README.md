@@ -21,6 +21,7 @@ Instead of running an isolated web service with a separate UI and separate LLM k
 - 🌐 **Dual Transports:** Supports standard `stdio` (for local processes and IDEs) and `sse` / `streamable-http` (for network/cloud bot integrations).
 - 🎯 **100% Deterministic AST Traversals:** Bypasses vector RAG chunking and hallucinated imports. Uses MongoDB `$graphLookup` for programmatic caller/callee graphs and blast-radius tracing.
 - 📦 **Git & Local Repo Indexing:** Point it at public Git URLs (`https://github.com/owner/repo`) or local directories.
+- ⚙️ **Optional Indexing Microservice:** Run repository parsing and embedding generation on a separate Render service while keeping local paths on the main server.
 
 ---
 
@@ -179,3 +180,30 @@ cd backend
 $env:PYTHONPATH="."
 python -m pytest tests/test_mcp_server.py
 ```
+
+## Optional indexing microservice
+
+Indexing runs as a background job and reports Python-file, embedding, and symbol
+progress to the cockpit. By default, the main backend performs indexing itself,
+so local development remains a single-service setup. To offload public Git
+repositories, deploy the same backend image a second time on Render with this
+start command:
+
+```text
+uvicorn app.indexing_api:app --host 0.0.0.0 --port $PORT
+```
+
+Configure the indexing service with `MONGODB_URI` pointing to the same MongoDB
+database as the main backend and a long, private `INDEXING_SERVICE_API_KEY`.
+Configure the main backend with the following values:
+
+```env
+INDEXING_SERVICE_URL=https://your-indexer.onrender.com
+INDEXING_SERVICE_API_KEY=<same-private-key>
+```
+
+Only public Git URL indexing is delegated; local filesystem paths continue to
+run in the main backend because the indexing service cannot access the main
+server's local files. The service requires the shared MongoDB database to make
+generated AST records and embeddings available to search immediately. Do not
+expose the indexing service key in browser configuration.

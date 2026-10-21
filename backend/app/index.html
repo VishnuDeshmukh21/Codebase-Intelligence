@@ -423,6 +423,22 @@
             <i data-lucide="scan" class="w-3.5 h-3.5"></i> Clone & Index Repository
           </button>
           <div id="indexStatus" class="hidden text-[11px] p-2 rounded bg-surface-base border border-surface-border"></div>
+          <div id="indexProgress" class="hidden space-y-2 rounded-lg border border-surface-border bg-surface-base p-3" aria-live="polite">
+            <div class="flex items-center justify-between text-[11px]">
+              <span id="indexPhase" class="text-cyan-300">Preparing repository...</span>
+              <span id="indexPercent" class="font-mono text-slate-300">0%</span>
+            </div>
+            <div class="h-1.5 overflow-hidden rounded-full bg-slate-800">
+              <div id="indexProgressBar" class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-y-1 text-[10px] text-slate-400">
+              <span>Python files found</span><span id="indexFilesFound" class="text-right font-mono text-slate-200">0</span>
+              <span>Files completed</span><span id="indexFilesCompleted" class="text-right font-mono text-slate-200">0</span>
+              <span>Currently processing</span><span id="indexCurrentFile" class="truncate text-right font-mono text-cyan-200">Waiting...</span>
+              <span>Symbols indexed</span><span id="indexSymbolsCount" class="text-right font-mono text-slate-200">0</span>
+              <span>Embeddings generated</span><span id="indexEmbeddingsCount" class="text-right font-mono text-slate-200">0</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -986,16 +1002,25 @@
       }
 
       btn.disabled = true;
-      const isRemote = source.startsWith("http://") || source.startsWith("https://") || source.startsWith("git@") || source.includes(".git") || source.includes("github.com") || source.includes("gitlab.com");
+      const isRemote = source.startsWith("http://") || source.startsWith("https://") || source.startsWith("git@") || source.startsWith("ssh://") || source.startsWith("git://") || source.includes(".git") || source.includes("github.com") || source.includes("gitlab.com");
 
-      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> ${isRemote ? "Cloning & Indexing..." : "Parsing AST..."}`;
+      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Indexing...`;
       lucide.createIcons();
 
       statusDiv.classList.remove("hidden");
       statusDiv.className = "text-[11px] p-2.5 rounded bg-surface-base border border-indigo-500/30 text-indigo-300";
-      statusDiv.innerText = isRemote
-        ? "Cloning public Git repository (shallow clone) and parsing AST symbols..."
-        : "Extracting AST symbols, functions, calls, and building graph...";
+      statusDiv.innerText = "Indexing started. You can follow file-by-file progress below.";
+      const progressPanel = document.getElementById("indexProgress");
+      progressPanel.classList.remove("hidden");
+      updateIndexProgress({
+        phase: "queued",
+        percent: 0,
+        total_files: 0,
+        files_completed: 0,
+        current_file: null,
+        symbols_indexed: 0,
+        embeddings_generated: 0,
+      });
 
       try {
         const payload = {
@@ -1013,18 +1038,38 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        const data = await res.json();
+        const started = await res.json();
+        if (!res.ok) {
+          throw new Error(started.detail || "Could not start indexing");
+        }
 
-        if (res.ok) {
-          statusDiv.className = "text-[11px] p-2.5 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-300";
-          const branchTag = data.branch ? ` [branch: ${data.branch}]` : "";
-          statusDiv.innerText = `✅ Indexed ${data.symbols_indexed} symbols under repo '${data.repo_id}'${branchTag}.`;
-          await loadRepositories();
-          repoSelect.value = data.repo_id;
-          activeRepoTag.innerText = data.repo_id;
-          symbolCount.innerText = data.symbols_indexed;
-        } else {
-          throw new Error(data.detail || "Indexing failed");
+        let job = started;
+        while (job.status !== "completed" && job.status !== "failed") {
+          updateIndexProgress(job);
+          await new Promise(resolve => setTimeout(resolve, 900));
+          const progressResponse = await authFetch(
+            `${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(started.job_id)}`
+          );
+          job = await progressResponse.json();
+          if (!progressResponse.ok) {
+            throw new Error(job.detail || "Could not read indexing progress");
+          }
+        }
+
+        updateIndexProgress(job);
+        if (job.status === "failed") {
+          throw new Error(job.error || "Indexing failed");
+        }
+
+        const result = job.result || {};
+        statusDiv.className = "text-[11px] p-2.5 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-300";
+        const branchTag = result.branch ? ` [branch: ${result.branch}]` : "";
+        statusDiv.innerText = `✅ Indexed ${result.symbols_indexed || job.symbols_indexed || 0} symbols under repo '${result.repo_id || repoId || "repository"}'${branchTag}.`;
+        await loadRepositories();
+        if (result.repo_id) {
+          repoSelect.value = result.repo_id;
+          activeRepoTag.innerText = result.repo_id;
+          symbolCount.innerText = result.symbols_indexed || job.symbols_indexed || 0;
         }
       } catch (err) {
         statusDiv.className = "text-[11px] p-2.5 rounded bg-red-950/40 border border-red-500/30 text-red-300";
@@ -1034,6 +1079,26 @@
         btn.innerHTML = `<i data-lucide="scan" class="w-3.5 h-3.5"></i> Clone & Index Repository`;
         lucide.createIcons();
       }
+    }
+
+    function updateIndexProgress(job) {
+      const phases = {
+        queued: "Queued",
+        preparing: "Preparing repository",
+        parsing: "Parsing Python files",
+        embedding: "Generating embeddings and indexing",
+        completed: "Indexing complete",
+        failed: "Indexing failed",
+      };
+      const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
+      document.getElementById("indexPhase").textContent = phases[job.phase] || "Indexing repository";
+      document.getElementById("indexPercent").textContent = `${percent}%`;
+      document.getElementById("indexProgressBar").style.width = `${percent}%`;
+      document.getElementById("indexFilesFound").textContent = Number(job.total_files) || 0;
+      document.getElementById("indexFilesCompleted").textContent = Number(job.files_completed) || 0;
+      document.getElementById("indexCurrentFile").textContent = job.current_file || (job.status === "completed" ? "Done" : "Waiting...");
+      document.getElementById("indexSymbolsCount").textContent = Number(job.symbols_indexed) || 0;
+      document.getElementById("indexEmbeddingsCount").textContent = Number(job.embeddings_generated) || 0;
     }
 
     // -------------------------------------------------------------
@@ -1966,4 +2031,3 @@
   </script>
 </body>
 </html>
-

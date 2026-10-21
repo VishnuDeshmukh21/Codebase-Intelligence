@@ -25,8 +25,10 @@ import json
 import logging
 import os
 import sys
+import time
 from typing import Any, Dict, List, Optional
 
+import httpx
 # Ensure app directory is discoverable
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.dirname(__file__))
@@ -56,6 +58,7 @@ from app.auth_mcp import MCPAuthManager
 from app.graph_tools import CodeGraphTools
 from app.indexers.cpg_indexer import RepoGraphIndexer
 from app.repo_manager import (
+    is_git_url,
     list_repositories_with_metadata,
     record_repo_metadata,
     resolve_repository_source,
@@ -133,6 +136,54 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Opti
     if db_err:
         return db_err
 
+    indexing_service_url = os.environ.get("INDEXING_SERVICE_URL", "").rstrip("/")
+    if indexing_service_url and is_git_url(repo_root):
+        service_key = os.environ.get("INDEXING_SERVICE_API_KEY")
+        if not service_key:
+            return "Indexing failed: INDEXING_SERVICE_API_KEY must be configured with INDEXING_SERVICE_URL."
+        actual_repo_id = repo_id or sanitize_repo_id(repo_root)
+        collection_name = f"{actual_repo_id}_symbols"
+        if collection_name in db.list_collection_names():
+            existing_count = db[collection_name].estimated_document_count()
+            if existing_count:
+                return (
+                    f"Repository '{repo_root}' is already indexed under repo_id: "
+                    f"'{actual_repo_id}' ({existing_count} symbols). "
+                    "Proceed directly to search_symbols or get_repo_filemap."
+                )
+        try:
+            with httpx.Client(timeout=httpx.Timeout(30.0, read=None)) as client:
+                response = client.post(
+                    f"{indexing_service_url}/api/index/jobs",
+                    headers={"X-Indexing-Service-Key": service_key},
+                    json={
+                        "repo_url": repo_root,
+                        "repo_id": actual_repo_id,
+                        "branch": branch,
+                        "owner_id": "mcp",
+                    },
+                )
+                response.raise_for_status()
+                job = response.json()
+                while job["status"] not in ("completed", "failed"):
+                    time.sleep(1)
+                    response = client.get(
+                        f"{indexing_service_url}/api/index/jobs/{job['job_id']}",
+                        headers={"X-Indexing-Service-Key": service_key},
+                    )
+                    response.raise_for_status()
+                    job = response.json()
+            if job["status"] == "failed":
+                return f"Indexing failed for '{repo_root}': {job.get('error', 'Unknown error')}"
+            count = job.get("result", {}).get("symbols_indexed", 0)
+            return (
+                f"Successfully indexed '{repo_root}' ({count} symbols) under repo_id: '{actual_repo_id}'. "
+                "You can now query symbols, blast radius, and dependencies."
+            )
+        except httpx.HTTPError as exc:
+            logging.error("Indexing service request failed: %s", exc)
+            return f"Indexing failed for '{repo_root}': indexing service unavailable."
+
     try:
         resolved_local_path, actual_repo_id, is_remote, normalized_url, clone_details = resolve_repository_source(
             repo_path=repo_root,
@@ -140,7 +191,7 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Opti
             branch=branch,
         )
     except Exception as exc:
-         logging.info(f"Failed to prepare repository source '{repo_root}': {exc}")
+        return f"Indexing failed for '{repo_root}': {exc}"
 
     collection_name = f"{actual_repo_id}_symbols"
 

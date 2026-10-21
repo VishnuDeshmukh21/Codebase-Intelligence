@@ -28,12 +28,13 @@ from typing import Any, AsyncGenerator, Dict, Iterator, Optional
 
 import structlog
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from starlette.types import ASGIApp, Receive, Scope, Send
+import httpx
 
 # Ensure app/ is in sys.path
 sys.path.insert(0, os.path.dirname(__file__))
@@ -56,15 +57,12 @@ from auth import (
     verify_password,
 )
 from graph_tools import CodeGraphTools
-from indexers.cpg_indexer import RepoGraphIndexer
+from indexing_jobs import create_index_job, public_job, run_index_job
 from llm_service.factory import LLMFactory
 from memory.mongo_checkpointer import build_mongo_checkpointer
 from repo_manager import (
     is_git_url,
     list_repositories_with_metadata,
-    record_repo_metadata,
-    resolve_repository_source,
-    sanitize_repo_id,
 )
 
 from app.auth_mcp import MCPAuthManager, current_request_api_key
@@ -628,65 +626,112 @@ def list_repositories(request: Request, current_user: dict = Depends(get_current
 
 
 @app.post("/api/repos/index")
-def index_repository(body: IndexRepoRequest, request: Request, current_user: dict = Depends(get_current_user)):
+def index_repository(
+    body: IndexRepoRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
     """
-    Index a codebase into the AST graph database from a public Git repository URL
-    or local directory path.
+    Queue indexing and return immediately. Public Git URLs can be delegated to
+    the optional indexing service; local paths always use this server's filesystem.
     """
     mongo_uri = request.app.state.mongo_uri
     db = request.app.state.db
+    owner_id = str(current_user.get("user_id") or current_user.get("sub") or "")
+    request_data = body.dict(exclude_none=True)
+    remote_source = body.repo_url or (
+        body.repo_path if body.repo_path and is_git_url(body.repo_path) else None
+    )
+    service_url = os.environ.get("INDEXING_SERVICE_URL", "").rstrip("/")
 
-    try:
-        (
-            resolved_local_path,
-            actual_repo_id,
-            is_remote,
-            normalized_url,
-            clone_details,
-        ) = resolve_repository_source(
-            repo_url=body.repo_url,
-            repo_path=body.repo_path,
-            repo_id=body.repo_id,
-            branch=body.branch,
+    if service_url and remote_source:
+        service_key = os.environ.get("INDEXING_SERVICE_API_KEY")
+        if not service_key:
+            raise HTTPException(
+                status_code=503,
+                detail="INDEXING_SERVICE_API_KEY must be configured when INDEXING_SERVICE_URL is set.",
+            )
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(
+                    f"{service_url}/api/index/jobs",
+                    headers={"X-Indexing-Service-Key": service_key},
+                    json={
+                        "repo_url": remote_source,
+                        "repo_id": body.repo_id,
+                        "branch": body.branch,
+                        "owner_id": owner_id,
+                    },
+                )
+                response.raise_for_status()
+            job = response.json()
+            job["job_id"] = f"remote-{job['job_id']}"
+            job["service"] = "remote"
+            return job
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text or "Indexing service rejected the request."
+            raise HTTPException(status_code=502, detail=detail) from exc
+        except httpx.HTTPError as exc:
+            log.error("server.indexing_service_unavailable", error=str(exc))
+            raise HTTPException(status_code=502, detail="Could not reach the indexing service.") from exc
+
+    if not body.repo_url and not body.repo_path:
+        raise HTTPException(status_code=400, detail="Provide a repository URL or local path.")
+
+    job = create_index_job(db, request_data, owner_id)
+    background_tasks.add_task(run_index_job, job["job_id"], request_data, mongo_uri)
+    job["service"] = "local"
+    return job
+
+
+@app.get("/api/repos/index-jobs/{job_id}")
+def get_index_job(
+    job_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return progress for a local indexing job or a delegated remote job."""
+    if job_id.startswith("remote-"):
+        service_url = os.environ.get("INDEXING_SERVICE_URL", "").rstrip("/")
+        service_key = os.environ.get("INDEXING_SERVICE_API_KEY")
+        if not service_url or not service_key:
+            raise HTTPException(status_code=503, detail="Remote indexing service is not configured.")
+        remote_job_id = job_id.removeprefix("remote-")
+        owner_id = str(current_user.get("user_id") or current_user.get("sub") or "")
+        remote_job = request.app.state.db["indexing_jobs"].find_one(
+            {"_id": remote_job_id},
+            {"owner_id": 1},
         )
+        if not remote_job or remote_job.get("owner_id") != owner_id:
+            raise HTTPException(status_code=404, detail="Indexing job not found.")
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.get(
+                    f"{service_url}/api/index/jobs/{remote_job_id}",
+                    headers={"X-Indexing-Service-Key": service_key},
+                )
+                response.raise_for_status()
+            job = response.json()
+            job["job_id"] = job_id
+            job["service"] = "remote"
+            return job
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=exc.response.status_code,
+                detail=exc.response.text or "Could not read remote indexing job.",
+            ) from exc
+        except httpx.HTTPError as exc:
+            log.error("server.indexing_job_status_unavailable", error=str(exc))
+            raise HTTPException(status_code=502, detail="Could not reach the indexing service.") from exc
 
-        indexer = RepoGraphIndexer(
-            repo_path=resolved_local_path,
-            repo_id=actual_repo_id,
-            mongo_uri=mongo_uri,
-        )
-        indexer.index_repository()
-
-        count = db[f"{actual_repo_id}_symbols"].estimated_document_count()
-
-        record_repo_metadata(
-            db=db,
-            repo_id=actual_repo_id,
-            repo_path=resolved_local_path,
-            repo_url=normalized_url,
-            is_remote=is_remote,
-            symbol_count=count,
-            branch=clone_details.get("branch"),
-            commit_hash=clone_details.get("commit_hash"),
-        )
-
-        source_desc = f"public repository '{normalized_url}'" if is_remote else f"local path '{resolved_local_path}'"
-
-        return {
-            "status": "success",
-            "repo_id": actual_repo_id,
-            "source_type": "git_url" if is_remote else "local_path",
-            "repo_url": normalized_url,
-            "branch": clone_details.get("branch"),
-            "commit_hash": clone_details.get("commit_hash"),
-            "symbols_indexed": count,
-            "message": f"Successfully indexed {source_desc} under '{actual_repo_id}'.",
-        }
-    except ValueError as val_err:
-        raise HTTPException(status_code=400, detail=str(val_err))
-    except Exception as exc:
-        log.error("server.index_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+    job = request.app.state.db["indexing_jobs"].find_one({"_id": job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Indexing job not found.")
+    owner_id = str(current_user.get("user_id") or current_user.get("sub") or "")
+    if job.get("owner_id") != owner_id:
+        raise HTTPException(status_code=404, detail="Indexing job not found.")
+    return public_job(job)
 
 
 @app.get("/api/repos/{repo_id}/filemap")
