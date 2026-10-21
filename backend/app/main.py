@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from typing import Any, Dict, List, Optional
@@ -139,7 +140,7 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Opti
             branch=branch,
         )
     except Exception as exc:
-        return f"Failed to prepare repository source '{repo_root}': {exc}"
+         logging.info(f"Failed to prepare repository source '{repo_root}': {exc}")
 
     collection_name = f"{actual_repo_id}_symbols"
 
