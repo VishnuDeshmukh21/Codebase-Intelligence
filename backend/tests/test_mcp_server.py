@@ -20,6 +20,8 @@ def test_mcp_registered_tools():
             "list_repositories",
             "get_repo_filemap",
             "search_symbols",
+            "semantic_search_symbols",
+            "resolve_intent_context",
             "get_symbol_details",
             "get_upstream_blast_radius",
             "get_downstream_dependencies",

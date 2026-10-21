@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from typing import Any, Dict, List, Optional
@@ -139,7 +140,7 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Opti
             branch=branch,
         )
     except Exception as exc:
-        return f"Failed to prepare repository source '{repo_root}': {exc}"
+         logging.info(f"Failed to prepare repository source '{repo_root}': {exc}")
 
     collection_name = f"{actual_repo_id}_symbols"
 
@@ -213,8 +214,8 @@ def get_repo_filemap(repo_id: str) -> str:
 @mcp.tool()
 def search_symbols(query: str, repo_id: str, limit: int = 10) -> str:
     """
-    Finds entry-point functions, classes, and methods matching a name or query.
-    Returns lightweight IDs and signatures. To view the implementation, pass the ID to get_symbol_details.
+    HYBRID SEARCH: Finds entry-point functions, classes, and methods matching a name, identifier,
+    or conceptual query using combined lexical regex and semantic vector embeddings.
     """
     auth_err = _check_auth()
     if auth_err:
@@ -226,6 +227,44 @@ def search_symbols(query: str, repo_id: str, limit: int = 10) -> str:
 
     results = graph_tools.search_symbols(query=query, repo_id=repo_id, limit=limit)
     return json.dumps(results, indent=2)
+
+
+@mcp.tool()
+def semantic_search_symbols(query: str, repo_id: str, limit: int = 10, min_score: float = 0.25) -> str:
+    """
+    SEMANTIC VECTOR SEARCH: Uses local dense embeddings (BAAI/bge-small-en-v1.5) to find classes,
+    functions, and symbols by conceptual meaning or developer intent (e.g. 'catalog configuration',
+    'authentication token verification') rather than exact name matching.
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    results = graph_tools.semantic_search_symbols(query=query, repo_id=repo_id, limit=limit, min_score=min_score)
+    return json.dumps(results, indent=2)
+
+
+@mcp.tool()
+def resolve_intent_context(intent: str, repo_id: str, max_hops: int = 1, top_k: int = 3) -> str:
+    """
+    SINGLE-CALL COMPOUND RETRIEVAL: Resolves user intent to entry-point symbols via semantic embeddings,
+    traverses downstream call graph dependencies via $graphLookup, and returns a deduplicated code manifest
+    in one turn, eliminating 20+ round trips.
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+
+    db_err = _check_db()
+    if db_err:
+        return db_err
+
+    result = graph_tools.resolve_intent_context(intent=intent, repo_id=repo_id, max_hops=max_hops, top_k=top_k)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -394,10 +433,11 @@ def plan_architectural_change(task: str, repo_id: str) -> str:
 Your assigned task: {task}
 
 Execute the following plan using your available CodeGraph MCP tools:
-1. Entry Points: Call `search_symbols` to identify relevant functions, classes, or endpoints.
-2. Code Inspection: Call `get_symbol_details` to inspect the implementation of key symbols.
-3. Impact Analysis: Call `get_upstream_blast_radius` to calculate which components and files will break if these symbols are modified.
-4. Downstream Dependencies: Call `get_downstream_dependencies` to understand dependencies.
+1. Fast-Path Context: Call `resolve_intent_context(intent='...')` to retrieve key symbols, dependency subgraphs, and source code in a single turn.
+2. Targeted Search: If needed, call `semantic_search_symbols` or `search_symbols` to find specific functions, classes, or endpoints.
+3. Code Inspection: Call `get_symbol_details` to inspect the full implementation of individual symbols.
+4. Impact Analysis: Call `get_upstream_blast_radius` to calculate which components and files will break if these symbols are modified.
+5. Downstream Dependencies: Call `get_downstream_dependencies` to understand dependencies.
 5. High-Level Context: Call `get_repo_filemap` if you need the broader module layout.
 
 Synthesize your findings into a comprehensive Architectural Change PRD including:

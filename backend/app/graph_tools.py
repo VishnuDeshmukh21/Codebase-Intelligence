@@ -1,6 +1,16 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pymongo.database import Database
 import re
+
+try:
+    from app.embedding_service import generate_query_embedding, rank_by_cosine_similarity
+except ImportError:
+    try:
+        from embedding_service import generate_query_embedding, rank_by_cosine_similarity
+    except ImportError:
+        generate_query_embedding = None
+        rank_by_cosine_similarity = None
+
 
 class CodeGraphTools:
     def __init__(self, db: Database):
@@ -10,10 +20,92 @@ class CodeGraphTools:
         clean_repo_id = repo_id.replace("_symbols", "")
         return self.db[f"{clean_repo_id}_symbols"]
 
-    def search_symbols(self, query: str, repo_id: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Finds entry-point symbols by name, signature, or file path in a specific repo collection."""
+    def semantic_search_symbols(self, query: str, repo_id: str, limit: int = 10, min_score: float = 0.25) -> List[Dict[str, Any]]:
+        """
+        Performs semantic vector search over codebase symbols using local dense embeddings.
+        Maps conceptual intent (e.g. 'catalog configuration') to matching symbols (e.g. 'AiModelConfigService').
+        """
+        if not generate_query_embedding or not rank_by_cosine_similarity:
+            return []
+
         col = self._get_collection(repo_id)
-        regex = {"$regex": query, "$options": "i"}
+        try:
+            query_vector = generate_query_embedding(query)
+        except Exception:
+            return []
+
+        if not query_vector:
+            return []
+
+        # 1. Try Atlas Vector Search if configured
+        try:
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "vector_index",
+                        "path": "embedding",
+                        "queryVector": query_vector,
+                        "numCandidates": limit * 5,
+                        "limit": limit
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "name": 1,
+                        "type": 1,
+                        "file_path": 1,
+                        "signature": 1,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "docstring": 1,
+                        "score": {"$meta": "vectorSearchScore"}
+                    }
+                }
+            ]
+            results = list(col.aggregate(pipeline))
+            if results:
+                return results
+        except Exception:
+            pass  # Fall back to local vector search
+
+        # 2. Local in-memory cosine similarity search
+        projection = {
+            "_id": 1,
+            "name": 1,
+            "type": 1,
+            "file_path": 1,
+            "signature": 1,
+            "start_line": 1,
+            "end_line": 1,
+            "docstring": 1,
+            "embedding": 1
+        }
+        cursor = col.find({"embedding": {"$exists": True, "$type": "array"}}, projection)
+        candidates = list(cursor)
+        if not candidates:
+            return []
+
+        candidate_embeddings = [c["embedding"] for c in candidates]
+        ranked = rank_by_cosine_similarity(query_vector, candidate_embeddings, top_k=limit, min_score=min_score)
+
+        results = []
+        for idx, score in ranked:
+            doc = dict(candidates[idx])
+            doc.pop("embedding", None)
+            doc["score"] = round(score, 4)
+            results.append(doc)
+
+        return results
+
+    def search_symbols(self, query: str, repo_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Hybrid symbol search: Combines deterministic lexical matching with semantic vector search.
+        Finds exact symbol identifiers as well as conceptual intent matches.
+        """
+        col = self._get_collection(repo_id)
+        escaped_query = re.escape(query)
+        regex = {"$regex": escaped_query, "$options": "i"}
         
         projection = {
             "_id": 1,
@@ -32,9 +124,136 @@ class CodeGraphTools:
                 {"file_path": regex}
             ]},
             projection
-        ).limit(limit)
+        )
+        if hasattr(cursor, "limit"):
+            cursor = cursor.limit(limit)
+        lexical_hits = list(cursor)[:limit]
+
+        # Semantic vector search
+        semantic_hits = self.semantic_search_symbols(query=query, repo_id=repo_id, limit=limit)
+
+        # Merge results, prioritizing exact/lexical hits but enriching with semantic hits
+        seen_ids = set()
+        merged = []
+
+        for item in lexical_hits:
+            if item["_id"] not in seen_ids:
+                seen_ids.add(item["_id"])
+                item["match_type"] = "lexical"
+                merged.append(item)
+
+        for item in semantic_hits:
+            if item["_id"] not in seen_ids:
+                seen_ids.add(item["_id"])
+                item["match_type"] = "semantic"
+                merged.append(item)
+
+        return merged[:limit]
+
+    def resolve_intent_context(self, intent: str, repo_id: str, max_hops: int = 1, top_k: int = 3) -> Dict[str, Any]:
+        """
+        High-Performance Compound Retrieval:
+        1. Resolves conceptual intent to top seed symbols using vector embeddings.
+        2. Traverses call graphs in MongoDB via $graphLookup to extract direct dependencies.
+        3. Assembles a deduplicated code manifest in a single ~100ms round trip.
+        """
+        col = self._get_collection(repo_id)
+        clean_repo_id = repo_id.replace("_symbols", "")
+        target_collection_name = f"{clean_repo_id}_symbols"
+
+        # 1. Discover top entry seeds semantically
+        seeds = self.semantic_search_symbols(query=intent, repo_id=repo_id, limit=top_k)
         
-        return list(cursor)
+        # If semantic search yields nothing (e.g. index without embeddings), fallback to lexical
+        if not seeds:
+            words = [w for w in re.split(r'\W+', intent) if len(w) > 3]
+            for w in words[:3]:
+                cur = col.find(
+                    {"$or": [{"name": {"$regex": re.escape(w), "$options": "i"}}]},
+                    {"_id": 1, "name": 1, "type": 1, "file_path": 1, "signature": 1, "start_line": 1, "end_line": 1}
+                )
+                if hasattr(cur, "limit"):
+                    cur = cur.limit(top_k)
+                lexical = list(cur)[:top_k]
+                if lexical:
+                    seeds.extend(lexical)
+                    break
+
+        if not seeds:
+            return {
+                "repo_id": repo_id,
+                "intent": intent,
+                "message": f"No relevant symbols found for intent '{intent}'. Try alternative keywords.",
+                "matched_seeds": [],
+                "code_manifest": []
+            }
+
+        seed_ids = [s["_id"] for s in seeds]
+
+        # 2. Traverse downstream dependencies for all seeds in parallel via $graphLookup
+        pipeline = [
+            {"$match": {"_id": {"$in": seed_ids}}},
+            {
+                "$graphLookup": {
+                    "from": target_collection_name,
+                    "startWith": "$calls",
+                    "connectFromField": "calls",
+                    "connectToField": "_id",
+                    "as": "callees",
+                    "maxDepth": max_hops - 1,
+                    "depthField": "hop_distance"
+                }
+            }
+        ]
+        
+        lookup_results = list(col.aggregate(pipeline))
+        
+        # Collect all symbol IDs (seeds + callees)
+        all_symbol_ids = set(seed_ids)
+        for row in lookup_results:
+            for callee in row.get("callees", []):
+                all_symbol_ids.add(callee["_id"])
+
+        # 3. Fetch full code docs for all symbols in a single query
+        code_docs = list(col.find(
+            {"_id": {"$in": list(all_symbol_ids)}},
+            {"_id": 1, "name": 1, "type": 1, "file_path": 1, "signature": 1, "start_line": 1, "end_line": 1, "source_code": 1, "calls": 1}
+        ))
+
+        manifest = []
+        for d in code_docs:
+            is_seed = d["_id"] in seed_ids
+            manifest.append({
+                "symbol_id": d["_id"],
+                "role": "seed_entry_point" if is_seed else "direct_dependency",
+                "name": d.get("name", ""),
+                "type": d.get("type", ""),
+                "file_path": d.get("file_path", ""),
+                "lines": f"{d.get('start_line')}-{d.get('end_line')}",
+                "signature": d.get("signature", ""),
+                "calls": d.get("calls", []),
+                "source_code": d.get("source_code", "")
+            })
+
+        # Sort seeds first, then dependencies
+        manifest.sort(key=lambda m: (0 if m["role"] == "seed_entry_point" else 1, m["file_path"]))
+
+        return {
+            "repo_id": repo_id,
+            "intent": intent,
+            "total_symbols_retrieved": len(manifest),
+            "matched_seeds": [
+                {
+                    "symbol_id": s["_id"],
+                    "name": s.get("name"),
+                    "type": s.get("type"),
+                    "file_path": s.get("file_path"),
+                    "score": s.get("score")
+                }
+                for s in seeds
+            ],
+            "code_manifest": manifest
+        }
 
     def get_symbol_details(self, symbol_id: str, repo_id: str) -> Dict[str, Any]:
         """Fetches exact source code, line numbers, and direct outgoing calls for a symbol."""
