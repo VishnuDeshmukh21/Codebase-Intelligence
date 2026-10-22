@@ -151,8 +151,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Codebase Intelligence Agent Server",
-    description="Agentic code planning with deterministic AST/CPG graphs and real-time SSE streaming.",
+    title="Codebase Intelligence MCP Server",
+    description="Model Context Protocol (MCP) server for deep AST graphs, blast radius analysis, and repository intelligence.",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -428,6 +428,8 @@ def register(body: RegisterRequest, request: Request):
     })
     return {
         "token": token,
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "email": user["email"],
             "name": user["name"],
@@ -451,6 +453,8 @@ def login(body: LoginRequest, request: Request):
     })
     return {
         "token": token,
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "email": user["email"],
             "name": user["name"],
@@ -595,11 +599,11 @@ def revoke_mcp_key(key_id: str, request: Request, current_user: dict = Depends(g
 @app.get("/signup")
 @app.get("/")
 def serve_ui():
-    """Serves the Web UI Cockpit."""
+    """Serves the MCP Developer Console."""
     index_file = os.path.join(os.path.dirname(__file__), "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
-    return JSONResponse({"message": "Codebase Intelligence Agent Server is running. Visit /docs for Swagger."})
+    return JSONResponse({"message": "Codebase Intelligence MCP Server is running. Visit /docs for Swagger."})
 
 
 @app.get("/health")

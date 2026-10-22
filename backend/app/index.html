@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Codebase Intelligence Agent Cockpit</title>
+  <title>CodeGraph — MCP Server Console</title>
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -26,11 +26,11 @@
               700: '#4338ca',
             },
             surface: {
-              base: '#090d16',
-              card: '#0f172a',
-              cardHover: '#131e36',
-              border: '#1e293b',
-              accentBorder: '#334155',
+              base: '#080b12',
+              card: '#0d1322',
+              cardHover: '#121b2f',
+              border: '#1b253b',
+              accentBorder: '#2e3d5e',
             }
           },
           fontFamily: {
@@ -45,63 +45,32 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Marked Markdown & Highlight.js -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Highlight.js for Code & JSON Highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
 
   <style>
     body {
-      background-color: #090d16;
+      background-color: #080b12;
       color: #f1f5f9;
       font-family: 'Inter', sans-serif;
     }
     pre code.hljs {
       padding: 1rem;
       border-radius: 0.5rem;
-      font-size: 0.85rem;
-      background: #0d1322 !important;
-    }
-    .markdown-body {
-      line-height: 1.65;
-    }
-    .markdown-body h1, .markdown-body h2, .markdown-body h3 {
-      color: #f8fafc;
-      font-weight: 700;
-      margin-top: 1.25rem;
-      margin-bottom: 0.5rem;
-    }
-    .markdown-body h1 { font-size: 1.5rem; border-bottom: 1px solid #1e293b; padding-bottom: 0.5rem; }
-    .markdown-body h2 { font-size: 1.25rem; }
-    .markdown-body h3 { font-size: 1.1rem; }
-    .markdown-body p { margin-bottom: 0.75rem; color: #cbd5e1; }
-    .markdown-body ul, .markdown-body ol { margin-left: 1.25rem; margin-bottom: 0.75rem; color: #cbd5e1; }
-    .markdown-body li { margin-bottom: 0.25rem; }
-    .markdown-body code:not(pre code) {
-      background: #1e293b;
-      color: #a5b4fc;
-      padding: 0.15rem 0.4rem;
-      border-radius: 0.25rem;
-      font-size: 0.85em;
+      font-size: 0.82rem;
+      background: #090e1a !important;
       font-family: 'JetBrains Mono', monospace;
+      line-height: 1.55;
     }
-    .markdown-body table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 1rem 0;
-    }
-    .markdown-body th, .markdown-body td {
-      border: 1px solid #1e293b;
-      padding: 0.5rem 0.75rem;
-      text-align: left;
-    }
-    .markdown-body th { background: #0f172a; color: #e2e8f0; }
     .custom-scrollbar::-webkit-scrollbar {
       width: 6px;
       height: 6px;
     }
     .custom-scrollbar::-webkit-scrollbar-track {
-      background: #090d16;
+      background: #080b12;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
       background: #1e293b;
@@ -119,26 +88,66 @@
       70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
       100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
     }
+    .grid-bg {
+      background-image: radial-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
   </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden text-slate-100">
+<body class="min-h-screen flex flex-col bg-surface-base text-slate-100 overflow-x-hidden">
 
-  <!-- Authentication View (Shown on / when unauthenticated) -->
-  <div id="authView" class="fixed inset-0 z-40 bg-surface-base flex flex-col items-center justify-center p-4 overflow-y-auto">
-    <!-- Ambient glow -->
+  <!-- Toast Notification System -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ========================================================================= -->
+  <!-- Authentication View (Shown when not logged in)                            -->
+  <!-- ========================================================================= -->
+  <div id="authView" class="fixed inset-0 z-40 bg-surface-base flex flex-col items-center justify-center p-4 overflow-y-auto grid-bg">
+    <!-- Ambient glow lights -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <div class="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl"></div>
       <div class="absolute -bottom-40 -right-40 w-96 h-96 bg-cyan-600/15 rounded-full blur-3xl"></div>
     </div>
 
-    <div class="w-full max-w-md bg-surface-card border border-surface-border rounded-2xl p-6 sm:p-8 shadow-2xl relative z-10 backdrop-blur-xl">
+    <div class="w-full max-w-lg bg-surface-card/95 border border-surface-border rounded-2xl p-6 sm:p-8 shadow-2xl relative z-10 backdrop-blur-xl">
       <!-- Brand Logo & Header -->
       <div class="text-center mb-6">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 mx-auto mb-3">
-          <i data-lucide="network" class="w-6 h-6 text-white"></i>
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/25 mx-auto mb-3.5 border border-indigo-400/20">
+          <i data-lucide="cpu" class="w-7 h-7 text-white"></i>
         </div>
-        <h1 class="text-lg font-bold text-white tracking-wide">Codebase Intelligence</h1>
-        <p class="text-xs text-slate-400 mt-1">Autonomous AST Planning Agent & Graph Engine</p>
+        <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-mono font-medium mb-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          Model Context Protocol Server
+        </div>
+        <h1 class="text-xl font-bold text-white tracking-tight">CodeGraph MCP Console</h1>
+        <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
+          High-performance AST graph server connecting repositories directly to your AI coding assistants (Cursor, Claude Desktop, VS Code Cline).
+        </p>
+      </div>
+
+      <!-- Quick 3-Step Value Pillars -->
+      <div class="grid grid-cols-3 gap-2 mb-6 p-3 rounded-xl bg-surface-base border border-surface-border/70 text-left">
+        <div class="flex items-start gap-2">
+          <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+          <div>
+            <div class="text-[11px] font-semibold text-slate-200">Index Repo</div>
+            <div class="text-[9px] text-slate-400">Parse AST & graphs</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+          <div>
+            <div class="text-[11px] font-semibold text-slate-200">Get MCP Key</div>
+            <div class="text-[9px] text-slate-400">Secure auth token</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+          <div>
+            <div class="text-[11px] font-semibold text-slate-200">Copy JSON</div>
+            <div class="text-[9px] text-slate-400">Plug into your IDE</div>
+          </div>
+        </div>
       </div>
 
       <!-- Auth Error / Info Alert -->
@@ -148,7 +157,7 @@
       </div>
 
       <!-- Tab Buttons -->
-      <div class="flex p-1 bg-surface-base rounded-xl border border-surface-border mb-6">
+      <div class="flex p-1 bg-surface-base rounded-xl border border-surface-border mb-5">
         <button id="loginTabBtn" type="button" onclick="switchAuthTab('login')" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition">
           Sign In
         </button>
@@ -158,608 +167,812 @@
       </div>
 
       <!-- Login Form -->
-      <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-4">
+      <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-3.5">
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Developer Email</label>
           <div class="relative">
             <i data-lucide="mail" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
-            <input id="loginEmail" type="email" required placeholder="developer@example.com" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+            <input id="loginEmail" type="email" required placeholder="developer@company.com" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
           <div class="relative">
             <i data-lucide="lock" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
             <input id="loginPassword" type="password" required placeholder="••••••••" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
           </div>
         </div>
 
-        <button id="loginSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 font-semibold text-xs text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-50">
-          <span id="loginSubmitText">Sign In to Cockpit</span>
+        <button id="loginSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 font-semibold text-xs text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-50 mt-2">
+          <span id="loginSubmitText">Sign In to MCP Console</span>
           <i data-lucide="arrow-right" class="w-4 h-4"></i>
         </button>
       </form>
 
       <!-- Register Form -->
-      <form id="registerForm" onsubmit="handleRegisterSubmit(event)" class="space-y-4 hidden">
+      <form id="registerForm" onsubmit="handleRegisterSubmit(event)" class="space-y-3.5 hidden">
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Full Name</label>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Full Name</label>
           <div class="relative">
             <i data-lucide="user" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
-            <input id="registerName" type="text" required placeholder="e.g. Krishna Deshmukh" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+            <input id="registerName" type="text" required placeholder="e.g. Alex Chen" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
           </div>
-          <p class="text-[10px] text-slate-500 mt-1">Recognized names unlock VIP status and remove rate limits.</p>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Work / Developer Email</label>
           <div class="relative">
             <i data-lucide="mail" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
-            <input id="registerEmail" type="email" required placeholder="developer@example.com" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
+            <input id="registerEmail" type="email" required placeholder="developer@company.com" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Password (min 6 characters)</label>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Password <span class="text-slate-500">(min 6 characters)</span></label>
           <div class="relative">
             <i data-lucide="lock" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
             <input id="registerPassword" type="password" minlength="6" required placeholder="••••••••" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 font-sans">
           </div>
         </div>
 
-        <button id="registerSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 font-semibold text-xs text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-50">
+        <button id="registerSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 font-semibold text-xs text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-50 mt-2">
           <span id="registerSubmitText">Create Account & Continue</span>
           <i data-lucide="sparkles" class="w-4 h-4"></i>
         </button>
       </form>
 
-      <!-- VIP Perks Box
-      <div id="vipBannerSection" class="hidden mt-6 pt-4 border-t border-surface-border/60">
-        <div class="flex items-center gap-1.5 text-[11px] font-semibold text-amber-300 mb-1.5">
-          <span>✨</span> VIP Access & Special Perks
-        </div>
-        <p class="text-[11px] text-slate-400 mb-2">Recognized VIP users enjoy unlimited message quotas and priority execution. Click a name to prefill:</p>
-        <div id="vipUsersList" class="flex flex-wrap gap-1.5"></div>
-      </div> -->
-
       <!-- Auth View Footer Meta -->
-      <div class="mt-5 pt-3 border-t border-surface-border/40 flex items-center justify-between text-[11px] text-slate-400">
+      <div class="mt-5 pt-3.5 border-t border-surface-border/60 flex items-center justify-between text-[11px] text-slate-400">
         <div class="flex items-center gap-1.5">
           <div id="authStatusDot" class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
-          <span id="authStatusText">Server: Checking...</span>
+          <span id="authStatusText">MCP Server: Online</span>
         </div>
         <button type="button" onclick="toggleServerConfig()" class="hover:text-indigo-400 transition flex items-center gap-1">
-          <i data-lucide="settings" class="w-3 h-3"></i> Backend Host
+          <i data-lucide="settings" class="w-3 h-3"></i> Backend Origin
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Main Cockpit Application View (Hidden until authenticated) -->
-  <div id="appView" class="h-screen flex flex-col overflow-hidden hidden">
-    <!-- Top Navigation Header -->
-    <header class="h-14 border-b border-surface-border bg-surface-card/60 backdrop-blur-md flex items-center justify-between px-5 shrink-0 z-30">
+  <!-- ========================================================================= -->
+  <!-- Main Console Application View                                             -->
+  <!-- ========================================================================= -->
+  <div id="appView" class="min-h-screen flex flex-col bg-surface-base hidden">
+
+    <!-- Top Navigation Bar -->
+    <header class="h-16 border-b border-surface-border bg-surface-card/80 backdrop-blur-md sticky top-0 z-30 px-6 flex items-center justify-between">
+      <!-- Brand & Status -->
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-          <i data-lucide="network" class="w-4 h-4 text-white"></i>
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-400 flex items-center justify-center shadow-md shadow-indigo-500/20 border border-indigo-400/30">
+          <i data-lucide="cpu" class="w-5 h-5 text-white"></i>
         </div>
         <div>
-          <h1 class="text-sm font-semibold tracking-wide text-white flex items-center gap-2">
-            Codebase Intelligence
-            <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">LangGraph Agent</span>
-          </h1>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm tracking-tight text-white">CodeGraph</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">MCP Server</span>
+          </div>
+          <p class="text-[11px] text-slate-400 font-mono">Model Context Protocol • Streamable HTTP & SSE</p>
         </div>
       </div>
 
-      <!-- Center/Right Meta -->
-      <div class="flex items-center gap-3 text-xs">
+      <!-- Navigation Tabs -->
+      <nav class="hidden md:flex items-center gap-1 bg-surface-base p-1 rounded-xl border border-surface-border">
+        <button id="navTabOverview" onclick="switchMainTab('overview')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow transition flex items-center gap-1.5">
+          <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> Overview & Guide
+        </button>
+        <button id="navTabRepos" onclick="switchMainTab('repos')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5">
+          <i data-lucide="folder-git-2" class="w-3.5 h-3.5"></i> Repositories
+          <span id="navRepoBadge" class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">0</span>
+        </button>
+        <button id="navTabKeys" onclick="switchMainTab('keys')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5">
+          <i data-lucide="key" class="w-3.5 h-3.5"></i> MCP Keys
+          <span id="navKeyBadge" class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">0</span>
+        </button>
+        <button id="navTabConfigs" onclick="switchMainTab('configs')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5">
+          <i data-lucide="code" class="w-3.5 h-3.5"></i> Client Configs
+        </button>
+        <button id="navTabTools" onclick="switchMainTab('tools')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5">
+          <i data-lucide="wrench" class="w-3.5 h-3.5"></i> Tools Catalog
+          <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 font-mono">14</span>
+        </button>
+      </nav>
+
+      <!-- Right Actions & User Profile -->
+      <div class="flex items-center gap-3">
+        <!-- Live Endpoint Pill -->
+        <div class="hidden lg:flex items-center gap-2 bg-surface-base px-3 py-1.5 rounded-full border border-surface-border text-xs">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+          <span class="font-mono text-[11px] text-slate-300 truncate max-w-[200px]" id="headerEndpointUrl">http://.../mcp</span>
+          <button onclick="copyHeaderEndpoint()" class="text-slate-400 hover:text-white p-0.5" title="Copy MCP Endpoint URL">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
         <!-- User Profile Pill -->
         <div class="flex items-center gap-2 bg-surface-base px-3 py-1.5 rounded-full border border-surface-border">
           <div class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-300 flex items-center justify-center text-[10px] font-bold">
             <i data-lucide="user" class="w-3 h-3"></i>
           </div>
-          <span id="userDisplayName" class="text-slate-200 font-medium text-xs max-w-[140px] truncate">User</span>
-          <span id="userVipBadge" class="hidden bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded-full text-[9px] font-semibold items-center gap-0.5">
-            <span>👑</span> VIP
-          </span>
+          <span id="userDisplayName" class="text-slate-200 font-medium text-xs max-w-[120px] truncate">User</span>
           <button onclick="handleLogout()" class="text-slate-400 hover:text-red-400 transition ml-1 p-0.5" title="Sign Out">
             <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
           </button>
         </div>
 
-        <!-- API Server Indicator -->
-        <div class="hidden sm:flex items-center gap-2 bg-surface-base px-3 py-1.5 rounded-full border border-surface-border">
-          <div id="statusDot" class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
-          <span id="statusText" class="text-slate-300 font-mono text-[11px]">Server: Checking...</span>
-        </div>
-
-        <!-- MCP Access & API Key Modal button -->
-        <button onclick="toggleMcpModal()" class="flex items-center gap-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-full text-xs font-medium transition" title="Get MCP Config & API Keys">
-          <i data-lucide="plug" class="w-3.5 h-3.5"></i>
-          <span>MCP Keys</span>
-        </button>
-
-        <!-- Settings / Server Host Modal button -->
-        <button onclick="toggleServerConfig()" class="text-slate-400 hover:text-slate-200 transition p-1.5 rounded-lg hover:bg-surface-border" title="Configure Server URL">
+        <!-- Settings Modal button -->
+        <button onclick="toggleServerConfig()" class="text-slate-400 hover:text-slate-200 transition p-2 rounded-lg hover:bg-surface-border" title="Configure Backend Host">
           <i data-lucide="settings" class="w-4 h-4"></i>
         </button>
       </div>
     </header>
 
-  <!-- Server Config Modal (Hidden by default) -->
-  <div id="serverConfigModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-surface-card border border-surface-border rounded-xl w-full max-w-md p-5 shadow-2xl">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-sm font-semibold text-white flex items-center gap-2">
-          <i data-lucide="server" class="w-4 h-4 text-indigo-400"></i> Server Connection
+    <!-- Mobile Nav Bar -->
+    <div class="md:hidden flex overflow-x-auto bg-surface-card border-b border-surface-border p-2 gap-1 custom-scrollbar">
+      <button onclick="switchMainTab('overview')" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap bg-indigo-600 text-white">Overview</button>
+      <button onclick="switchMainTab('repos')" class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-slate-400 hover:text-white">Repositories</button>
+      <button onclick="switchMainTab('keys')" class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-slate-400 hover:text-white">MCP Keys</button>
+      <button onclick="switchMainTab('configs')" class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-slate-400 hover:text-white">Client Configs</button>
+      <button onclick="switchMainTab('tools')" class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-slate-400 hover:text-white">Tools Catalog</button>
+    </div>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+      <!-- ===================================================================== -->
+      <!-- TAB 1: OVERVIEW & 3-STEP QUICKSTART GUIDE                             -->
+      <!-- ===================================================================== -->
+      <section id="sectionOverview" class="space-y-6">
+        
+        <!-- Hero Banner: What is this MCP Server? -->
+        <div class="relative overflow-hidden rounded-2xl bg-gradient-to-r from-surface-card via-surface-card to-indigo-950/30 border border-surface-border p-6 sm:p-8 shadow-xl">
+          <div class="relative z-10 max-w-3xl">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-mono font-medium mb-3">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              Zero Server-Side LLM Keys Needed
+            </div>
+            <h2 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Connect your repositories directly to your AI IDE.
+            </h2>
+            <p class="text-sm text-slate-300 mt-2.5 leading-relaxed">
+              This server indexes any Git repository or local folder into deterministic AST call graphs, symbol hierarchies, and vector embeddings. Your coding assistants (Cursor, Claude Desktop, Cline, Windsurf) connect over standard <span class="text-indigo-400 font-mono font-semibold">Model Context Protocol (MCP)</span> to query blast radius, dependencies, and code architecture on demand using their host LLM.
+            </p>
+
+            <div class="flex flex-wrap items-center gap-3 mt-5">
+              <button onclick="switchMainTab('repos'); document.getElementById('indexRepoPath')?.focus();" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/25 transition flex items-center gap-2">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i> Index A Repository
+              </button>
+              <button onclick="switchMainTab('configs')" class="px-4 py-2.5 rounded-xl bg-surface-base hover:bg-surface-border text-slate-200 border border-surface-border font-medium text-xs transition flex items-center gap-2">
+                <i data-lucide="terminal" class="w-4 h-4 text-cyan-400"></i> Get Client Config JSON
+              </button>
+              <button onclick="switchMainTab('tools')" class="px-4 py-2.5 rounded-xl bg-surface-base hover:bg-surface-border text-slate-300 border border-surface-border font-medium text-xs transition flex items-center gap-2">
+                <i data-lucide="wrench" class="w-4 h-4 text-emerald-400"></i> Browse 14 MCP Tools
+              </button>
+            </div>
+          </div>
+          
+          <!-- Decorative Background Elements -->
+          <div class="absolute -right-12 -bottom-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+          <div class="absolute right-12 top-1/2 -translate-y-1/2 hidden lg:block opacity-20 pointer-events-none">
+            <i data-lucide="network" class="w-64 h-64 text-indigo-400"></i>
+          </div>
+        </div>
+
+        <!-- The 3-Step Guided Workflow Banner -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i> The 3-Step Setup Workflow
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Follow these three steps to bring deep codebase intelligence into your AI assistant.</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            
+            <!-- Step 1 Card -->
+            <div class="bg-surface-card border border-surface-border rounded-xl p-5 hover:border-indigo-500/40 transition flex flex-col justify-between group">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 font-mono font-bold text-xs flex items-center justify-center border border-indigo-500/30">
+                    01
+                  </div>
+                  <span id="step1StatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-slate-800 text-slate-400 border border-slate-700">Checking...</span>
+                </div>
+                <h4 class="text-sm font-bold text-white mb-1.5 flex items-center gap-1.5">
+                  <i data-lucide="folder-git-2" class="w-4 h-4 text-indigo-400"></i> Index Your Repository
+                </h4>
+                <p class="text-xs text-slate-400 leading-relaxed mb-4">
+                  Add any public Git repository URL or local filesystem path. The parser extracts AST nodes, functions, classes, imports, and builds vector embeddings.
+                </p>
+              </div>
+              <button onclick="switchMainTab('repos')" class="w-full py-2 bg-surface-base hover:bg-indigo-600/20 text-indigo-300 border border-surface-border hover:border-indigo-500/30 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5">
+                <span>Manage & Index Repos</span>
+                <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+            <!-- Step 2 Card -->
+            <div class="bg-surface-card border border-surface-border rounded-xl p-5 hover:border-cyan-500/40 transition flex flex-col justify-between group">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <div class="w-8 h-8 rounded-lg bg-cyan-600/20 text-cyan-400 font-mono font-bold text-xs flex items-center justify-center border border-cyan-500/30">
+                    02
+                  </div>
+                  <span id="step2StatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-slate-800 text-slate-400 border border-slate-700">Checking...</span>
+                </div>
+                <h4 class="text-sm font-bold text-white mb-1.5 flex items-center gap-1.5">
+                  <i data-lucide="key" class="w-4 h-4 text-cyan-400"></i> Generate an MCP Key
+                </h4>
+                <p class="text-xs text-slate-400 leading-relaxed mb-4">
+                  Create a secure Bearer access token for your client (e.g. Cursor, Claude Desktop, VS Code Cline). All MCP tool calls are securely authenticated.
+                </p>
+              </div>
+              <button onclick="switchMainTab('keys')" class="w-full py-2 bg-surface-base hover:bg-cyan-600/20 text-cyan-300 border border-surface-border hover:border-cyan-500/30 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5">
+                <span>Create MCP Key</span>
+                <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+            <!-- Step 3 Card -->
+            <div class="bg-surface-card border border-surface-border rounded-xl p-5 hover:border-emerald-500/40 transition flex flex-col justify-between group">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <div class="w-8 h-8 rounded-lg bg-emerald-600/20 text-emerald-400 font-mono font-bold text-xs flex items-center justify-center border border-emerald-500/30">
+                    03
+                  </div>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Ready to Use</span>
+                </div>
+                <h4 class="text-sm font-bold text-white mb-1.5 flex items-center gap-1.5">
+                  <i data-lucide="clipboard-copy" class="w-4 h-4 text-emerald-400"></i> Copy Client Config JSON
+                </h4>
+                <p class="text-xs text-slate-400 leading-relaxed mb-4">
+                  Copy 4 lines of JSON into your client's config file (<code class="text-emerald-300 font-mono">.cursor/mcp.json</code> or <code class="text-emerald-300 font-mono">claude_desktop_config.json</code>) and restart your IDE.
+                </p>
+              </div>
+              <button onclick="switchMainTab('configs')" class="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/30">
+                <span>Copy Config JSON</span>
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Quick Connection Snippet Box -->
+        <div class="bg-surface-card border border-surface-border rounded-xl p-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Quick MCP Configuration Preview
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Auto-populated with your server URL and latest generated key.</p>
+            </div>
+            
+            <div class="flex items-center gap-2">
+              <select id="quickClientSelect" onchange="updateQuickConfigSnippet()" class="bg-surface-base border border-surface-border text-xs rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
+                <option value="cursor">Cursor IDE (.cursor/mcp.json)</option>
+                <option value="claude">Claude Desktop (claude_desktop_config.json)</option>
+                <option value="config_mcp">Generic MCP (config.mcp / mcp.json)</option>
+                <option value="antigravity">Antigravity (mcpServers)</option>
+                <option value="windsurf">Windsurf / Cascade (mcp_config.json)</option>
+              </select>
+              <button onclick="copyQuickSnippet()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow transition">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy JSON
+              </button>
+            </div>
+          </div>
+
+          <div class="relative">
+            <pre><code id="quickConfigCode" class="language-json hljs rounded-lg">Loading configuration...</code></pre>
+          </div>
+        </div>
+
+        <!-- Live Server Status & Architecture Details -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div class="p-4 rounded-xl bg-surface-card border border-surface-border">
+            <span class="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Server Protocol</span>
+            <div class="text-sm font-bold text-white flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Streamable HTTP + SSE
+            </div>
+            <span class="text-[10px] text-slate-400 font-mono mt-1 block">Mounted at /mcp & /mcp/sse</span>
+          </div>
+
+          <div class="p-4 rounded-xl bg-surface-card border border-surface-border">
+            <span class="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Indexed Repositories</span>
+            <div id="statReposCount" class="text-sm font-bold text-indigo-400 font-mono">0</div>
+            <span class="text-[10px] text-slate-400 mt-1 block">Ready for graph traversal</span>
+          </div>
+
+          <div class="p-4 rounded-xl bg-surface-card border border-surface-border">
+            <span class="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Total AST Symbols</span>
+            <div id="statSymbolsCount" class="text-sm font-bold text-cyan-400 font-mono">0</div>
+            <span class="text-[10px] text-slate-400 mt-1 block">Indexed in MongoDB</span>
+          </div>
+
+          <div class="p-4 rounded-xl bg-surface-card border border-surface-border">
+            <span class="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Active MCP Keys</span>
+            <div id="statKeysCount" class="text-sm font-bold text-emerald-400 font-mono">0</div>
+            <span class="text-[10px] text-slate-400 mt-1 block">Bearer access tokens</span>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 2: REPOSITORIES & AST INDEXER                                     -->
+      <!-- ===================================================================== -->
+      <section id="sectionRepos" class="space-y-6 hidden">
+        
+        <!-- Index New Repository Card -->
+        <div class="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xl">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i data-lucide="plus-circle" class="w-4 h-4 text-indigo-400"></i> Index A Codebase into MCP
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Clones or reads your codebase, parses every Python module into an AST graph, and writes symbols & blast radius into MongoDB.
+              </p>
+            </div>
+            <span class="text-[11px] px-2.5 py-1 rounded-full font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+              Deterministic AST Parser
+            </span>
+          </div>
+
+          <!-- Indexing Input Form -->
+          <div class="space-y-3.5 mt-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Public Git Repository URL or Local Directory Path</label>
+              <div class="relative">
+                <i data-lucide="git-branch" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+                <input id="indexRepoPath" type="text" placeholder="https://github.com/fastapi/fastapi or C:\Users\name\projects\my-repo" oninput="autoDeriveRepoId(this.value)" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+              </div>
+              <p class="text-[10px] text-slate-500 mt-1">Accepts any public GitHub, GitLab, or Bitbucket URL, or an absolute path on this server's filesystem.</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Repository ID / Alias</label>
+                <input id="indexRepoId" type="text" placeholder="e.g. fastapi_fastapi" class="w-full bg-surface-base border border-surface-border rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                <p class="text-[10px] text-slate-500 mt-1">Identifier passed to MCP tools like <code class="text-indigo-300">search_symbols("auth", repo_id="fastapi_fastapi")</code></p>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Branch / Tag <span class="text-slate-500 font-normal">(Optional)</span></label>
+                <input id="indexRepoBranch" type="text" placeholder="default branch (e.g. main)" class="w-full bg-surface-base border border-surface-border rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                <p class="text-[10px] text-slate-500 mt-1">Leave empty to clone the default branch.</p>
+              </div>
+            </div>
+
+            <div class="pt-2">
+              <button id="startIndexBtn" onclick="startIndexing()" class="px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition disabled:opacity-50">
+                <i data-lucide="scan" class="w-4 h-4"></i>
+                <span id="startIndexBtnText">Start Indexing Repository</span>
+              </button>
+            </div>
+
+            <!-- Status Banner -->
+            <div id="indexStatus" class="hidden text-xs p-3 rounded-xl bg-surface-base border border-surface-border"></div>
+
+            <!-- Real-Time Progress Bar & Metrics -->
+            <div id="indexProgress" class="hidden space-y-3 rounded-xl border border-surface-border bg-surface-base p-4 mt-2">
+              <div class="flex items-center justify-between text-xs">
+                <span id="indexPhase" class="text-cyan-300 font-semibold flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span> Preparing repository...
+                </span>
+                <span id="indexPercent" class="font-mono text-slate-200 font-bold">0%</span>
+              </div>
+              <div class="h-2 overflow-hidden rounded-full bg-slate-800">
+                <div id="indexProgressBar" class="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] text-slate-400">
+                <div class="bg-surface-card p-2 rounded-lg border border-surface-border">
+                  <span class="text-[10px] block text-slate-500">Files Discovered</span>
+                  <span id="indexFilesFound" class="font-mono font-bold text-slate-200">0</span>
+                </div>
+                <div class="bg-surface-card p-2 rounded-lg border border-surface-border">
+                  <span class="text-[10px] block text-slate-500">Files Processed</span>
+                  <span id="indexFilesCompleted" class="font-mono font-bold text-slate-200">0</span>
+                </div>
+                <div class="bg-surface-card p-2 rounded-lg border border-surface-border">
+                  <span class="text-[10px] block text-slate-500">Symbols Indexed</span>
+                  <span id="indexSymbolsCount" class="font-mono font-bold text-indigo-400">0</span>
+                </div>
+                <div class="bg-surface-card p-2 rounded-lg border border-surface-border">
+                  <span class="text-[10px] block text-slate-500">Embeddings Built</span>
+                  <span id="indexEmbeddingsCount" class="font-mono font-bold text-cyan-400">0</span>
+                </div>
+              </div>
+              <div class="text-[10px] text-slate-400 truncate font-mono">
+                Current file: <span id="indexCurrentFile" class="text-cyan-300">Waiting...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Indexed Repositories List Section -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <i data-lucide="database" class="w-4 h-4 text-indigo-400"></i> Indexed Repositories Ready in MCP
+              </h3>
+              <p class="text-xs text-slate-400">These codebases are indexed in MongoDB and immediately queryable by connected AI coding assistants.</p>
+            </div>
+            <button onclick="loadRepositories()" class="text-slate-400 hover:text-white text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-card border border-surface-border hover:border-surface-accentBorder transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh List
+            </button>
+          </div>
+
+          <div id="reposListContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="col-span-full text-slate-500 text-center py-10 bg-surface-card rounded-xl border border-surface-border">
+              Loading repositories...
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 3: MCP API KEYS MANAGEMENT                                        -->
+      <!-- ===================================================================== -->
+      <section id="sectionKeys" class="space-y-6 hidden">
+        
+        <!-- Generate New Key Card -->
+        <div class="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xl">
+          <div class="max-w-2xl">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i data-lucide="key" class="w-4 h-4 text-cyan-400"></i> Generate Plug-and-Play MCP Key
+            </h3>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">
+              Create a dedicated Bearer token for your AI tool (e.g. Cursor, Claude Desktop, VS Code Cline). The client uses this token to authenticate requests against <code class="text-cyan-300 font-mono">/mcp</code>.
+            </p>
+
+            <form onsubmit="handleGenerateKeySubmit(event)" class="flex flex-col sm:flex-row gap-2.5 mt-4">
+              <div class="relative flex-1">
+                <i data-lucide="tag" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+                <input id="newKeyNameInput" type="text" placeholder="Key Name (e.g. Cursor Pro, Claude Desktop, Work Mac)" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+              </div>
+              <button type="submit" class="px-5 py-2 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition shrink-0">
+                <i data-lucide="plus" class="w-4 h-4"></i> Generate Key
+              </button>
+            </form>
+          </div>
+
+          <!-- Newly Created Key Banner (Shown only after creating a key) -->
+          <div id="newKeyBanner" class="hidden mt-5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between text-xs text-emerald-300 font-semibold">
+              <span class="flex items-center gap-1.5">
+                <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+                API Key Generated Successfully — Copy it now!
+              </span>
+              <button onclick="copyGeneratedKey()" class="text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-900/40 px-2.5 py-1 rounded border border-emerald-500/30 flex items-center gap-1">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Key
+              </button>
+            </div>
+            
+            <div class="text-[11px] text-slate-300">
+              For your security, full secret keys cannot be retrieved once you navigate away.
+            </div>
+
+            <div id="newKeySecretDisplay" class="font-mono text-xs text-emerald-300 bg-black/60 p-3 rounded-lg break-all select-all border border-emerald-500/20"></div>
+
+            <div class="pt-2">
+              <span class="text-[11px] font-semibold text-slate-300 block mb-1">Cursor / Claude Ready-to-paste JSON Snippet:</span>
+              <pre><code id="newKeyConfigSnippet" class="language-json hljs rounded-lg text-xs"></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Keys List -->
+        <div class="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i> Active MCP API Keys
+              </h3>
+              <p class="text-xs text-slate-400">Tokens currently authorized to interact with this MCP server.</p>
+            </div>
+            <button onclick="loadMcpKeys()" class="text-slate-400 hover:text-white text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-base border border-surface-border transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+            </button>
+          </div>
+
+          <div id="mcpKeysList" class="space-y-2.5 text-xs">
+            <div class="text-slate-500 text-center py-6">Loading keys...</div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 4: CLIENT CONFIGS GENERATOR (Cursor, Claude, VS Code)             -->
+      <!-- ===================================================================== -->
+      <section id="sectionConfigs" class="space-y-6 hidden">
+        
+        <div class="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xl">
+          <div class="max-w-3xl mb-6">
+            <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-[11px] font-mono font-medium mb-2">
+              <i data-lucide="file-json" class="w-3.5 h-3.5"></i> Model Context Protocol Configuration
+            </div>
+            <h3 class="text-lg font-bold text-white tracking-tight">Plug-and-Play AI Assistant Configurations</h3>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">
+              Select your AI coding tool below. Copy the configuration JSON into the indicated settings file. Once restarted, your AI assistant will automatically recognize the <code class="text-indigo-400 font-mono">CodeGraph</code> MCP server tools!
+            </p>
+          </div>
+
+          <!-- Controls: Choose Client & Key -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-surface-base border border-surface-border mb-6">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Target AI Coding Assistant</label>
+              <select id="configClientSelect" onchange="renderClientConfigSnippet()" class="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-xs font-sans text-white focus:outline-none focus:border-indigo-500">
+                <option value="cursor">Cursor IDE (.cursor/mcp.json or Settings &gt; MCP)</option>
+                <option value="claude">Claude Desktop (claude_desktop_config.json)</option>
+                <option value="config_mcp">Generic MCP Config (config.mcp / mcp.json)</option>
+                <option value="antigravity">Google Antigravity (mcpServers)</option>
+                <option value="windsurf">Windsurf / Cascade (mcp_config.json)</option>
+                <option value="cline">VS Code Cline / Roo Code (cline_mcp_settings.json)</option>
+                <option value="curl">Direct cURL / HTTP Request</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Inject API Key</label>
+              <select id="configKeySelect" onchange="renderClientConfigSnippet()" class="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500">
+                <option value="">Loading your keys...</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Client Setup Guide Pill -->
+          <div id="clientFilePathBox" class="flex items-center justify-between p-3 rounded-lg bg-indigo-950/20 border border-indigo-500/20 text-xs text-slate-300 mb-4">
+            <div class="flex items-center gap-2">
+              <i data-lucide="file-code" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+              <span>Config File Path: <code id="clientConfigPathText" class="text-indigo-300 font-mono font-semibold">.cursor/mcp.json</code></span>
+            </div>
+            <button onclick="copyConfigPath()" class="text-slate-400 hover:text-white text-xs flex items-center gap-1 shrink-0">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Path
+            </button>
+          </div>
+
+          <!-- Highlighted Code Box -->
+          <div class="relative">
+            <div class="flex items-center justify-between px-4 py-2 bg-surface-base border-t border-x border-surface-border rounded-t-xl text-xs">
+              <span id="configFileNameLabel" class="text-slate-400 font-mono text-[11px]">mcp_configuration.json</span>
+              <div class="flex items-center gap-2">
+                <button onclick="copyConfigSnippet()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition shadow">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy JSON
+                </button>
+                <button onclick="downloadConfigFile()" class="px-3 py-1 bg-surface-card hover:bg-surface-border text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition border border-surface-border">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download
+                </button>
+              </div>
+            </div>
+            <pre class="!mt-0"><code id="configSnippetCode" class="language-json hljs !rounded-t-none rounded-b-xl text-xs leading-relaxed">Loading snippet...</code></pre>
+          </div>
+
+          <!-- Step by Step Setup Instructions -->
+          <div class="mt-6 pt-5 border-t border-surface-border space-y-3">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i> Setup Instructions
+            </h4>
+            <div id="clientSetupInstructions" class="text-xs text-slate-300 space-y-2 leading-relaxed">
+              <!-- Dynamically populated based on selected client -->
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 5: MCP TOOLS CATALOG                                              -->
+      <!-- ===================================================================== -->
+      <section id="sectionTools" class="space-y-6 hidden">
+        
+        <div class="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xl">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] font-mono font-medium mb-2">
+                <i data-lucide="box" class="w-3.5 h-3.5"></i> 14 Tools • 3 Prompts • 2 Resources
+              </div>
+              <h3 class="text-lg font-bold text-white tracking-tight">Exposed MCP Tools Catalog</h3>
+              <p class="text-xs text-slate-300 mt-1">
+                When your coding assistant calls these tools, this server executes deterministic AST queries against MongoDB.
+              </p>
+            </div>
+
+            <!-- Search Filter for Tools -->
+            <div class="relative w-full sm:w-64">
+              <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+              <input id="toolSearchInput" type="text" placeholder="Filter tools..." oninput="filterTools(this.value)" class="w-full bg-surface-base border border-surface-border rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+            </div>
+          </div>
+
+          <!-- Tools Grid -->
+          <div id="toolsGridContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODALS                                                                    -->
+  <!-- ========================================================================= -->
+
+  <!-- Server Host Config Modal -->
+  <div id="serverConfigModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-surface-card border border-surface-border rounded-2xl w-full max-w-md p-6 shadow-2xl">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i data-lucide="server" class="w-4 h-4 text-indigo-400"></i> Backend Origin Settings
         </h3>
         <button onclick="toggleServerConfig()" class="text-slate-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
-      <p class="text-xs text-slate-400 mb-3">If running locally or deployed on GCP Cloud Run, enter the backend origin URL:</p>
-      <input id="serverBaseUrlInput" type="text" placeholder="http://localhost:8000" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500 mb-4">
-      <div class="flex justify-end gap-2">
-        <button onclick="toggleServerConfig()" class="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:bg-surface-border">Cancel</button>
-        <button onclick="saveServerConfig()" class="px-4 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 font-medium text-white">Save & Connect</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MCP Access & API Key Modal (Plug-and-Play MCP) -->
-  <div id="mcpModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-surface-card border border-surface-border rounded-xl w-full max-w-xl p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-      <div class="flex justify-between items-center mb-2">
-        <h3 class="text-sm font-semibold text-white flex items-center gap-2">
-          <i data-lucide="plug" class="w-4 h-4 text-emerald-400"></i> Plug & Play MCP Server Access
-        </h3>
-        <button onclick="toggleMcpModal()" class="text-slate-400 hover:text-white">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-      <p class="text-xs text-slate-400 mb-4">
-        Plug this MCP server directly into Cursor, Claude Desktop, or your company's Slack Bot.
-        <span class="text-emerald-400 font-medium">Zero Gemini key required on your side — the client uses its own models!</span>
+      <p class="text-xs text-slate-400 mb-4 leading-relaxed">
+        If running locally or deployed on a remote VPS / GCP Cloud Run, specify the base URL of the FastAPI backend:
       </p>
-
-      <!-- Live MCP URL -->
-      <div class="bg-surface-base border border-surface-border rounded-lg p-3 mb-4">
-        <span class="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-1">Live MCP Server URL (Streamable HTTP / SSE):</span>
-        <div class="flex items-center justify-between font-mono text-xs text-emerald-400 bg-black/40 px-3 py-2 rounded border border-white/5">
-          <span id="mcpEndpointUrl" class="truncate mr-2">Loading...</span>
-          <button onclick="copyMcpUrl()" class="text-slate-300 hover:text-white text-xs flex items-center gap-1 shrink-0 bg-white/5 px-2 py-1 rounded">
-            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy URL
-          </button>
-        </div>
-      </div>
-
-      <!-- Generate Key Form -->
-      <div class="flex gap-2 mb-4">
-        <input id="newKeyNameInput" type="text" placeholder="Key Name (e.g. Cursor, Slack Bot, My Agent)" class="flex-1 bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
-        <button onclick="handleGenerateKey()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 shrink-0 transition">
-          <i data-lucide="plus" class="w-3.5 h-3.5"></i> Generate API Key
-        </button>
-      </div>
-
-      <!-- Newly Created Key Banner (Hidden until created) -->
-      <div id="newKeyBanner" class="hidden bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-3 mb-4">
-        <div class="flex items-center justify-between text-xs text-emerald-300 font-semibold mb-1">
-          <span>🔑 New API Key (Save it now!):</span>
-          <button onclick="copyGeneratedKey()" class="text-xs text-emerald-400 hover:underline">Copy Key</button>
-        </div>
-        <div id="newKeySecretDisplay" class="font-mono text-xs text-slate-100 bg-black/60 p-2 rounded break-all select-all"></div>
-        <span class="text-[10px] text-slate-400 mt-2 block font-medium">Ready-to-use Cursor / Claude Desktop Config:</span>
-        <pre id="newKeyConfigSnippet" class="font-mono text-[10px] text-indigo-300 bg-black/60 p-2 rounded mt-1 overflow-x-auto select-all max-h-28"></pre>
-      </div>
-
-      <!-- Active Keys List -->
-      <div class="flex-1 overflow-y-auto custom-scrollbar border-t border-surface-border pt-3">
-        <h4 class="text-xs font-semibold text-slate-300 mb-2 flex items-center justify-between">
-          <span>Your Active API Keys</span>
-          <button onclick="loadMcpKeys()" class="text-slate-400 hover:text-indigo-400 text-[11px] font-normal flex items-center gap-1">
-            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
-          </button>
-        </h4>
-        <div id="mcpKeysList" class="space-y-2 text-xs">
-          <div class="text-slate-500 text-center py-4">Loading keys...</div>
-        </div>
+      <input id="serverBaseUrlInput" type="text" placeholder="http://localhost:8000" class="w-full bg-surface-base border border-surface-border rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-indigo-500 mb-4">
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleServerConfig()" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-surface-border">Cancel</button>
+        <button onclick="saveServerConfig()" class="px-4 py-2 rounded-xl text-xs bg-indigo-600 hover:bg-indigo-500 font-semibold text-white shadow">Save & Connect</button>
       </div>
     </div>
   </div>
 
-  <!-- Main Container -->
-  <div class="flex-1 flex overflow-hidden">
-    
-    <!-- Left Sidebar: Repositories & Indexer -->
-    <aside class="w-80 border-r border-surface-border bg-surface-base/80 flex flex-col shrink-0">
-      
-      <!-- Repo Selector Card -->
-      <div class="p-4 border-b border-surface-border">
-        <div class="flex items-center justify-between mb-2">
-          <label class="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <i data-lucide="database" class="w-3.5 h-3.5 text-indigo-400"></i> Active Codebase
-          </label>
-          <button onclick="loadRepositories()" class="text-slate-400 hover:text-indigo-400 text-xs transition" title="Refresh repositories">
-            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
-          </button>
+  <!-- Repository Filemap Modal -->
+  <div id="filemapModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
+    <div class="bg-surface-card border border-surface-border rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="p-5 border-b border-surface-border flex items-center justify-between shrink-0 bg-surface-card">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="folder-tree" class="w-4 h-4 text-cyan-400"></i>
+            <span id="filemapRepoTitle">Repository Filemap</span>
+          </h3>
+          <p id="filemapSubtitle" class="text-xs text-slate-400 mt-0.5">Hierarchical modules and symbol ASTs</p>
         </div>
-
-        <select id="repoSelect" class="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500">
-          <option value="">Loading indexed repos...</option>
-        </select>
-        <div id="repoMeta" class="mt-2 text-[11px] text-slate-400 font-mono flex items-center justify-between">
-          <span>Symbols: <span id="symbolCount" class="text-indigo-400 font-semibold">--</span></span>
-          <span class="text-emerald-400 flex items-center gap-1">● AST Synced</span>
-        </div>
-      </div>
-
-      <!-- Accordion: Index New Repository -->
-      <div class="border-b border-surface-border">
-        <button onclick="toggleIndexAccordion()" class="w-full px-4 py-3 flex items-center justify-between text-xs font-medium text-slate-300 hover:bg-surface-card/40 transition">
-          <span class="flex items-center gap-2">
-            <i data-lucide="folder-git-2" class="w-4 h-4 text-cyan-400"></i> Index New Repository
-          </span>
-          <i id="indexChevron" data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform"></i>
-        </button>
-
-        <div id="indexFormPanel" class="hidden p-4 bg-surface-card/30 space-y-3 text-xs border-t border-surface-border/50">
-          <div>
-            <label class="block text-[11px] text-slate-400 mb-1">Public Git URL or Local Path</label>
-            <input id="indexRepoPath" type="text" placeholder="https://github.com/pallets/flask or /local/path" oninput="autoDeriveRepoId(this.value)" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
-            <p class="text-[10px] text-slate-500 mt-1">Accepts any public GitHub/GitLab URL or local filesystem path.</p>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="block text-[11px] text-slate-400 mb-1">Repo ID (Alias)</label>
-              <input id="indexRepoId" type="text" placeholder="e.g. pallets_flask" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
-            </div>
-            <div>
-              <label class="block text-[11px] text-slate-400 mb-1">Branch <span class="text-slate-500">(Optional)</span></label>
-              <input id="indexRepoBranch" type="text" placeholder="default branch" class="w-full bg-surface-base border border-surface-border rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500">
-            </div>
-          </div>
-          <button id="startIndexBtn" onclick="startIndexing()" class="w-full py-2 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-lg font-medium transition flex items-center justify-center gap-2 shadow-md">
-            <i data-lucide="scan" class="w-3.5 h-3.5"></i> Clone & Index Repository
-          </button>
-          <div id="indexStatus" class="hidden text-[11px] p-2 rounded bg-surface-base border border-surface-border"></div>
-          <div id="indexProgress" class="hidden space-y-2 rounded-lg border border-surface-border bg-surface-base p-3" aria-live="polite">
-            <div class="flex items-center justify-between text-[11px]">
-              <span id="indexPhase" class="text-cyan-300">Preparing repository...</span>
-              <span id="indexPercent" class="font-mono text-slate-300">0%</span>
-            </div>
-            <div class="h-1.5 overflow-hidden rounded-full bg-slate-800">
-              <div id="indexProgressBar" class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 transition-all duration-300" style="width: 0%"></div>
-            </div>
-            <div class="grid grid-cols-2 gap-y-1 text-[10px] text-slate-400">
-              <span>Python files found</span><span id="indexFilesFound" class="text-right font-mono text-slate-200">0</span>
-              <span>Files completed</span><span id="indexFilesCompleted" class="text-right font-mono text-slate-200">0</span>
-              <span>Currently processing</span><span id="indexCurrentFile" class="truncate text-right font-mono text-cyan-200">Waiting...</span>
-              <span>Symbols indexed</span><span id="indexSymbolsCount" class="text-right font-mono text-slate-200">0</span>
-              <span>Embeddings generated</span><span id="indexEmbeddingsCount" class="text-right font-mono text-slate-200">0</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Execution Overview / History Summary -->
-      <div class="flex-1 overflow-y-auto p-4 custom-scrollbar">
-        <h3 class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <i data-lucide="activity" class="w-3.5 h-3.5 text-brand-400"></i> Execution State
-        </h3>
-
-        <div class="space-y-2.5 text-xs">
-          <div class="bg-surface-card p-3 rounded-lg border border-surface-border">
-            <span class="text-slate-400 text-[10px] uppercase font-semibold">Active Thread</span>
-            <div id="activeThreadDisplay" class="font-mono text-slate-300 text-[11px] truncate mt-1">None</div>
-          </div>
-
-          <div class="bg-surface-card p-3 rounded-lg border border-surface-border">
-            <span class="text-slate-400 text-[10px] uppercase font-semibold">Agent Status</span>
-            <div id="agentStatusBadge" class="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-              <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Idle
-            </div>
-          </div>
-
-          <div class="bg-surface-card p-3 rounded-lg border border-surface-border">
-            <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-              <span>Interactive HITL</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input id="interactiveToggle" type="checkbox" checked class="sr-only peer">
-                <div class="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
-              </label>
-            </div>
-            <p class="text-[10px] text-slate-500">Pauses before final spec generation for your human approval & feedback.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Action Footer -->
-      <div class="p-3 border-t border-surface-border text-center">
-        <button onclick="clearChat()" class="text-xs text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1.5 w-full py-1.5 rounded hover:bg-surface-card">
-          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear Conversation
+        <button onclick="closeFilemapModal()" class="text-slate-400 hover:text-white p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
-    </aside>
 
-    <!-- Right Workspace: Interactive Agent Feed -->
-    <main class="flex-1 flex flex-col bg-surface-base overflow-hidden">
-      
-      <!-- Chat & Stream Timeline Feed -->
-      <div id="chatFeed" class="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
-
-        <!-- Welcome Banner -->
-        <div id="welcomeCard" class="max-w-2xl mx-auto my-10 p-6 rounded-2xl bg-gradient-to-b from-surface-card to-surface-base border border-surface-border shadow-xl text-center">
-          <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mx-auto flex items-center justify-center mb-4 shadow-inner">
-            <i data-lucide="sparkles" class="w-6 h-6"></i>
-          </div>
-          <h2 class="text-lg font-semibold text-white mb-2">Codebase Planning & Architecture Agent</h2>
-          <p class="text-xs text-slate-400 leading-relaxed max-w-lg mx-auto mb-5">
-            Query deep programmatic relationships across your Python AST graph. The agent decomposes your request into deterministic graph queries, checks blast radius, reflects on results, and asks for your review before authoring architectural specs.
-          </p>
-
-          <div class="grid grid-cols-2 gap-2 text-left text-xs max-w-md mx-auto">
-            <div class="p-2.5 rounded-lg bg-surface-card/60 border border-surface-border hover:border-indigo-500/40 cursor-pointer transition" onclick="useSamplePrompt(this.innerText)">
-              <span class="text-indigo-400 font-semibold block mb-0.5">Blast Radius</span>
-              <span class="text-slate-400 text-[11px]">What will break if we refactor CodeGraphTools into a separate service?</span>
-            </div>
-            <div class="p-2.5 rounded-lg bg-surface-card/60 border border-surface-border hover:border-indigo-500/40 cursor-pointer transition" onclick="useSamplePrompt(this.innerText)">
-              <span class="text-cyan-400 font-semibold block mb-0.5">Dependency Tracing</span>
-              <span class="text-slate-400 text-[11px]">What does the index_repository function call and depend on?</span>
-            </div>
-          </div>
-        </div>
-
+      <div id="filemapContent" class="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-3 font-mono text-xs">
+        <div class="text-slate-500 text-center py-10">Loading filemap...</div>
       </div>
-
-      <!-- Human-in-the-Loop Review Banner (Floating Action Gate) -->
-      <div id="hitlGateContainer" class="hidden px-5 py-3 bg-slate-900/95 border-t-2 border-amber-500/60 backdrop-blur-md shadow-2xl transition-all z-20">
-        <div class="max-w-4xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          <div class="flex items-start gap-3">
-            <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400 mt-0.5">
-              <i data-lucide="shield-alert" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h4 class="text-xs font-bold text-amber-200 uppercase tracking-wide">Human Approval Required</h4>
-                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                <button type="button" onclick="scrollToReviewCard()" class="text-[11px] text-amber-400 hover:text-amber-300 underline font-medium ml-1">
-                  View Review Card ↑
-                </button>
-              </div>
-              <p id="hitlPromptText" class="text-[11px] text-slate-300 mt-0.5 line-clamp-1">Analysis complete. Review the plan above or approve to author final specification.</p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 w-full md:w-auto justify-end">
-            <input id="hitlFeedbackInput" type="text" placeholder="Optional revision guidance..." oninput="syncFeedbackInputs(this.value)" class="bg-surface-base border border-surface-border rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 w-full md:w-60 font-sans shadow-inner">
-            
-            <button onclick="submitReviewFeedback('approve')" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 shadow-md shadow-emerald-950/40 shrink-0 cursor-pointer transition">
-              <i data-lucide="check" class="w-3.5 h-3.5"></i> Approve
-            </button>
-            <button onclick="submitReviewFeedback('revise')" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer transition">
-              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Revise
-            </button>
-            <button onclick="submitReviewFeedback('stop')" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-950/30 shrink-0 cursor-pointer transition" title="Abort Session">
-              <i data-lucide="x" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Bottom Query Input Bar -->
-      <div class="p-4 border-t border-surface-border bg-surface-card/60 backdrop-blur-md">
-        <form id="chatForm" onsubmit="handleChatSubmit(event)" class="max-w-4xl mx-auto flex items-end gap-3">
-          <div class="flex-1 bg-surface-base border border-surface-border rounded-xl p-2.5 focus-within:border-indigo-500/70 focus-within:ring-1 focus-within:ring-indigo-500/20 transition shadow-inner">
-            <textarea id="taskInput" rows="2" placeholder="Ask anything about the codebase architecture (e.g. impact analysis, blast radius, refactoring plan)..." class="w-full bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none resize-none font-sans custom-scrollbar" onkeydown="handleKeyDown(event)"></textarea>
-            
-            <div class="flex justify-between items-center pt-2 text-[11px] text-slate-500 border-t border-surface-border/40 mt-1">
-              <span class="flex items-center gap-1">
-                <i data-lucide="corner-down-left" class="w-3 h-3"></i> Press <kbd class="px-1 py-0.5 rounded bg-surface-border text-slate-300 text-[10px]">Ctrl + Enter</kbd> to run
-              </span>
-              <span id="activeRepoTag" class="text-indigo-400 font-mono text-[10px]">No repo selected</span>
-            </div>
-          </div>
-
-          <button id="sendBtn" type="submit" class="h-11 px-5 rounded-xl bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 font-medium text-xs text-white flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
-            <span id="sendBtnText">Run Plan</span>
-            <i id="sendBtnIcon" data-lucide="arrow-up" class="w-4 h-4"></i>
-          </button>
-        </form>
-      </div>
-
-    </main>
+    </div>
   </div>
-  </div> <!-- /#appView -->
 
-  <!-- JavaScript Logic -->
+  <!-- ========================================================================= -->
+  <!-- JAVASCRIPT APPLICATION LOGIC                                              -->
+  <!-- ========================================================================= -->
   <script>
-    // Configuration & State
-    let API_BASE_URL = localStorage.getItem("CODEBASE_AGENT_API_URL") || window.location.origin;
+    // Configuration & State (Updated to match CodeGraph MCP naming)
+    let API_BASE_URL = localStorage.getItem("CODEGRAPH_API_URL") || window.location.origin;
     if (API_BASE_URL.startsWith("file://") || !API_BASE_URL.startsWith("http")) {
       API_BASE_URL = "http://localhost:8000";
     }
 
-    let activeThreadId = null;
-    let isRunning = false;
-    let isAwaitingHuman = false;
+    let activeKeysList = [];
+    let activeReposList = [];
+    let lastCreatedKey = localStorage.getItem("CODEGRAPH_LAST_KEY") || null;
 
-    // Elements
-    const chatFeed = document.getElementById("chatFeed");
-    const taskInput = document.getElementById("taskInput");
-    const sendBtn = document.getElementById("sendBtn");
-    const sendBtnText = document.getElementById("sendBtnText");
-    const sendBtnIcon = document.getElementById("sendBtnIcon");
-    const repoSelect = document.getElementById("repoSelect");
-    const symbolCount = document.getElementById("symbolCount");
-    const activeRepoTag = document.getElementById("activeRepoTag");
-    const activeThreadDisplay = document.getElementById("activeThreadDisplay");
-    const agentStatusBadge = document.getElementById("agentStatusBadge");
-    const hitlGateContainer = document.getElementById("hitlGateContainer");
-    const hitlPromptText = document.getElementById("hitlPromptText");
-    const hitlFeedbackInput = document.getElementById("hitlFeedbackInput");
-    const interactiveToggle = document.getElementById("interactiveToggle");
-    const statusDot = document.getElementById("statusDot");
-    const statusText = document.getElementById("statusText");
+    // Toast Notification Utility
+    function showToast(message, type = "success") {
+      const container = document.getElementById("toastContainer");
+      const toast = document.createElement("div");
+      toast.className = `pointer-events-auto px-4 py-2.5 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 border transition-all duration-300 transform translate-y-2 opacity-0 ${
+        type === "success" 
+          ? "bg-slate-900/95 text-emerald-300 border-emerald-500/40" 
+          : type === "error" 
+          ? "bg-slate-900/95 text-red-300 border-red-500/40" 
+          : "bg-slate-900/95 text-cyan-300 border-cyan-500/40"
+      }`;
+      const icon = type === "success" ? "check-circle" : type === "error" ? "alert-circle" : "info";
+      toast.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i><span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+      if (window.lucide) lucide.createIcons();
 
-    // -------------------------------------------------------------
-    // Authentication Helpers & View Switcher
-    // -------------------------------------------------------------
-    function getAuthToken() {
-      return localStorage.getItem("CODEBASE_AGENT_TOKEN") || "";
+      requestAnimationFrame(() => {
+        toast.classList.remove("translate-y-2", "opacity-0");
+      });
+
+      setTimeout(() => {
+        toast.classList.add("translate-y-2", "opacity-0");
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
     }
 
-    function getCurrentUser() {
-      try {
-        const raw = localStorage.getItem("CODEBASE_AGENT_USER");
-        return raw ? JSON.parse(raw) : null;
-      } catch (e) {
-        return null;
+    function escapeHtml(text) {
+      if (!text) return "";
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Helper: Authenticated fetch wrapper
+    async function authFetch(url, options = {}) {
+      const token = localStorage.getItem("CODEGRAPH_JWT");
+      const headers = { ...options.headers };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
-    }
-
-    function setAuth(token, user) {
-      if (token) localStorage.setItem("CODEBASE_AGENT_TOKEN", token);
-      if (user) localStorage.setItem("CODEBASE_AGENT_USER", JSON.stringify(user));
-    }
-
-    function clearAuth() {
-      localStorage.removeItem("CODEBASE_AGENT_TOKEN");
-      localStorage.removeItem("CODEBASE_AGENT_USER");
-    }
-
-    function showAuthView(message = "", type = "info") {
-      const authView = document.getElementById("authView");
-      const appView = document.getElementById("appView");
-      if (authView) authView.classList.remove("hidden");
-      if (appView) appView.classList.add("hidden");
-
-      if (message) {
-        showAuthAlert(message, type);
-      } else {
-        hideAuthAlert();
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401) {
+        handleLogout();
+        throw new Error("Session expired. Please sign in again.");
       }
-      loadVipUsers();
-      lucide.createIcons();
+      return res;
     }
 
-    function showAppView(user) {
-      const authView = document.getElementById("authView");
-      const appView = document.getElementById("appView");
-      if (authView) authView.classList.add("hidden");
-      if (appView) appView.classList.remove("hidden");
-
-      if (user) {
-        updateUserHeader(user);
-      }
-      lucide.createIcons();
-    }
-
-    function updateUserHeader(user) {
-      const nameEl = document.getElementById("userDisplayName");
-      const vipBadge = document.getElementById("userVipBadge");
-      if (nameEl) nameEl.innerText = user.name || user.email || "User";
-      if (vipBadge) {
-        if (user.is_vip) {
-          vipBadge.classList.remove("hidden");
-          vipBadge.classList.add("flex");
-        } else {
-          vipBadge.classList.add("hidden");
-          vipBadge.classList.remove("flex");
+    // Navigation Tab Switching
+    function switchMainTab(tab) {
+      const tabs = ["overview", "repos", "keys", "configs", "tools"];
+      tabs.forEach(t => {
+        const sec = document.getElementById(`section${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        const nav = document.getElementById(`navTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        if (sec) sec.classList.toggle("hidden", t !== tab);
+        if (nav) {
+          if (t === tab) {
+            nav.className = "nav-tab px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow transition flex items-center gap-1.5";
+          } else {
+            nav.className = "nav-tab px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5";
+          }
         }
-      }
+      });
+      if (tab === "configs") renderClientConfigSnippet();
+      if (tab === "overview") updateQuickConfigSnippet();
+      if (window.lucide) lucide.createIcons();
     }
 
-    function switchAuthTab(tab) {
-      const loginTabBtn = document.getElementById("loginTabBtn");
-      const registerTabBtn = document.getElementById("registerTabBtn");
+    // Auth Tab Switching (Sign In vs Register)
+    function switchAuthTab(mode) {
       const loginForm = document.getElementById("loginForm");
       const registerForm = document.getElementById("registerForm");
-      hideAuthAlert();
+      const loginBtn = document.getElementById("loginTabBtn");
+      const registerBtn = document.getElementById("registerTabBtn");
+      const alertBox = document.getElementById("authAlert");
+      alertBox.classList.add("hidden");
 
-      if (tab === "register") {
-        registerTabBtn.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition";
-        loginTabBtn.className = "flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition";
+      if (mode === "login") {
+        loginForm.classList.remove("hidden");
+        registerForm.classList.add("hidden");
+        loginBtn.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition";
+        registerBtn.className = "flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition";
+      } else {
         loginForm.classList.add("hidden");
         registerForm.classList.remove("hidden");
-      } else {
-        loginTabBtn.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition";
-        registerTabBtn.className = "flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition";
-        registerForm.classList.add("hidden");
-        loginForm.classList.remove("hidden");
+        registerBtn.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition";
+        loginBtn.className = "flex-1 py-2 text-xs font-medium text-slate-400 hover:text-white transition";
       }
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
     }
 
-    function showAuthAlert(message, type = "error") {
-      const alertEl = document.getElementById("authAlert");
-      const alertIcon = document.getElementById("authAlertIcon");
+    function showAuthAlert(msg, type = "error") {
+      const alertBox = document.getElementById("authAlert");
       const alertText = document.getElementById("authAlertText");
-      if (!alertEl || !alertText) return;
-
-      alertText.innerText = message;
-      alertEl.classList.remove("hidden");
-      if (type === "error") {
-        alertEl.className = "mb-4 p-3 rounded-xl bg-red-950/50 border border-red-500/40 text-red-200 text-xs flex items-center gap-2.5";
-        alertIcon.setAttribute("data-lucide", "alert-triangle");
-        alertIcon.className = "w-4 h-4 text-red-400 shrink-0";
-      } else {
-        alertEl.className = "mb-4 p-3 rounded-xl bg-indigo-950/50 border border-indigo-500/40 text-indigo-200 text-xs flex items-center gap-2.5";
-        alertIcon.setAttribute("data-lucide", "info");
-        alertIcon.className = "w-4 h-4 text-indigo-400 shrink-0";
-      }
-      lucide.createIcons();
+      alertText.innerText = msg;
+      alertBox.className = type === "error" 
+        ? "mb-4 p-3 rounded-xl text-xs flex items-center gap-2.5 bg-red-950/60 border border-red-500/40 text-red-200"
+        : "mb-4 p-3 rounded-xl text-xs flex items-center gap-2.5 bg-emerald-950/60 border border-emerald-500/40 text-emerald-200";
+      alertBox.classList.remove("hidden");
+      if (window.lucide) lucide.createIcons();
     }
 
-    function hideAuthAlert() {
-      const alertEl = document.getElementById("authAlert");
-      if (alertEl) alertEl.classList.add("hidden");
-    }
-
-    async function loadVipUsers() {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/vip-users`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const container = document.getElementById("vipUsersList");
-        const bannerSection = document.getElementById("vipBannerSection");
-        if (data.vip_names && data.vip_names.length > 0 && container) {
-          container.innerHTML = data.vip_names.map(name => `
-            <button type="button" onclick="quickFillVipName('${escapeHtml(name)}')" class="px-2 py-0.5 rounded-full text-[11px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition flex items-center gap-1" title="Click to fill name in Sign Up">
-              <span>👑</span> ${escapeHtml(name)}
-            </button>
-          `).join("");
-          if (bannerSection) bannerSection.classList.remove("hidden");
-        }
-      } catch (e) {
-        // Non-blocking
-      }
-    }
-
-    function quickFillVipName(name) {
-      switchAuthTab('register');
-      const nameInput = document.getElementById("registerName");
-      if (nameInput) {
-        nameInput.value = name;
-        nameInput.focus();
-      }
-    }
-
-    async function handleLoginSubmit(event) {
-      event.preventDefault();
+    // Login Form Submit
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
       const email = document.getElementById("loginEmail").value.trim();
       const password = document.getElementById("loginPassword").value;
       const btn = document.getElementById("loginSubmitBtn");
-      const btnText = document.getElementById("loginSubmitText");
-
-      if (!email || !password) {
-        showAuthAlert("Please enter both email and password.", "error");
-        return;
-      }
-
       btn.disabled = true;
-      btnText.innerText = "Signing in...";
-      hideAuthAlert();
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -767,44 +980,28 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password })
         });
-
         const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.detail || "Invalid email or password.");
-        }
+        if (!res.ok) throw new Error(data.detail || "Authentication failed");
 
-        setAuth(data.token, data.user);
-        showAppView(data.user);
-        await loadRepositories();
+        localStorage.setItem("CODEGRAPH_JWT", data.access_token);
+        localStorage.setItem("CODEGRAPH_USER", JSON.stringify(data.user));
+        enterConsole(data.user);
+        showToast("Welcome back! Signed in to MCP Console.");
       } catch (err) {
         showAuthAlert(err.message, "error");
       } finally {
         btn.disabled = false;
-        btnText.innerText = "Sign In to Cockpit";
-        lucide.createIcons();
       }
     }
 
-    async function handleRegisterSubmit(event) {
-      event.preventDefault();
+    // Register Form Submit
+    async function handleRegisterSubmit(e) {
+      e.preventDefault();
       const name = document.getElementById("registerName").value.trim();
       const email = document.getElementById("registerEmail").value.trim();
       const password = document.getElementById("registerPassword").value;
       const btn = document.getElementById("registerSubmitBtn");
-      const btnText = document.getElementById("registerSubmitText");
-
-      if (!name || !email || !password) {
-        showAuthAlert("Please fill in all fields.", "error");
-        return;
-      }
-      if (password.length < 6) {
-        showAuthAlert("Password must be at least 6 characters long.", "error");
-        return;
-      }
-
       btn.disabled = true;
-      btnText.innerText = "Creating account...";
-      hideAuthAlert();
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
@@ -812,221 +1009,194 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, email, password })
         });
-
         const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.detail || "Registration failed. Try again.");
-        }
+        if (!res.ok) throw new Error(data.detail || "Registration failed");
 
-        setAuth(data.token, data.user);
-        showAppView(data.user);
-        await loadRepositories();
+        localStorage.setItem("CODEGRAPH_JWT", data.access_token);
+        localStorage.setItem("CODEGRAPH_USER", JSON.stringify(data.user));
+        enterConsole(data.user);
+        showToast("Account created successfully!");
       } catch (err) {
         showAuthAlert(err.message, "error");
       } finally {
         btn.disabled = false;
-        btnText.innerText = "Create Account & Continue";
-        lucide.createIcons();
       }
     }
 
-    function handleLogout(message = "You have signed out successfully.") {
-      clearAuth();
-      showAuthView(message, "info");
+    function handleLogout() {
+      localStorage.removeItem("CODEGRAPH_JWT");
+      localStorage.removeItem("CODEGRAPH_USER");
+      document.getElementById("authView").classList.remove("hidden");
+      document.getElementById("appView").classList.add("hidden");
+      showToast("Signed out of console.", "info");
     }
 
-    function authHeaders(extra = {}) {
-      const token = getAuthToken();
-      const headers = Object.assign({}, extra);
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      return headers;
+    function enterConsole(user) {
+      document.getElementById("authView").classList.add("hidden");
+      document.getElementById("appView").classList.remove("hidden");
+      document.getElementById("userDisplayName").innerText = user?.name || user?.email || "Developer";
+      document.getElementById("headerEndpointUrl").innerText = `${API_BASE_URL}/mcp`;
+
+      loadRepositories();
+      loadMcpKeys();
+      renderToolsCatalog();
+      updateQuickConfigSnippet();
+      if (window.lucide) lucide.createIcons();
     }
 
-    async function authFetch(url, options = {}) {
-      const headers = authHeaders(options.headers || {});
-      options.headers = headers;
-
-      const res = await fetch(url, options);
-      if (res.status === 401) {
-        handleLogout("Session expired. Please sign in again.");
-        throw new Error("Authentication session expired (401).");
+    // Auto-derive Repo ID
+    function autoDeriveRepoId(val) {
+      const idInput = document.getElementById("indexRepoId");
+      if (!val) return;
+      let clean = val.trim().replace(/\.git$/, "").replace(/\/+$/, "");
+      const parts = clean.split(/[/\\]/);
+      let candidate = parts[parts.length - 1];
+      if (parts.length >= 2 && (clean.includes("github.com") || clean.includes("gitlab.com"))) {
+        candidate = `${parts[parts.length - 2]}_${candidate}`;
       }
-      return res;
+      idInput.value = candidate.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
     }
-
-    // Init
-    window.addEventListener("DOMContentLoaded", async () => {
-      lucide.createIcons();
-      checkServerHealth();
-      document.getElementById("serverBaseUrlInput").value = API_BASE_URL;
-
-      repoSelect.addEventListener("change", () => {
-        const selected = repoSelect.options[repoSelect.selectedIndex];
-        const count = selected.getAttribute("data-count") || "--";
-        symbolCount.innerText = count;
-        activeRepoTag.innerText = repoSelect.value || "No repo selected";
-      });
-
-      const token = getAuthToken();
-      if (!token) {
-        showAuthView();
-        return;
-      }
-
-      // Validate existing session token with /api/auth/me
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
-          headers: { "Authorization": `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const user = await res.json();
-          setAuth(token, user);
-          showAppView(user);
-          loadRepositories();
-        } else {
-          clearAuth();
-          showAuthView("Your session has expired. Please sign in again.", "info");
-        }
-      } catch (err) {
-        // Network or server error: show auth view
-        showAuthView("Server unreachable. Please check connection and sign in.", "error");
-      }
-    });
 
     // -------------------------------------------------------------
-    // Server Health & Repositories
+    // Repositories Management & Live Indexing
     // -------------------------------------------------------------
-    async function checkServerHealth() {
-      const dots = [document.getElementById("statusDot"), document.getElementById("authStatusDot")];
-      const texts = [document.getElementById("statusText"), document.getElementById("authStatusText")];
-
-      try {
-        const res = await fetch(`${API_BASE_URL}/health`);
-        if (res.ok) {
-          const data = await res.json();
-          dots.forEach(d => { if (d) d.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-dot"; });
-          texts.forEach(t => { if (t) t.innerText = "Server: Online (MongoDB Connected)"; });
-        } else {
-          throw new Error();
-        }
-      } catch (err) {
-        dots.forEach(d => { if (d) d.className = "w-2 h-2 rounded-full bg-red-500"; });
-        texts.forEach(t => { if (t) t.innerText = "Server: Offline / Connecting..."; });
-      }
-    }
-
     async function loadRepositories() {
+      const container = document.getElementById("reposListContainer");
       try {
         const res = await authFetch(`${API_BASE_URL}/api/repos`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("Failed to load repositories");
         const data = await res.json();
-        repoSelect.innerHTML = "";
+        activeReposList = data.repositories || [];
 
-        if (data.repositories && data.repositories.length > 0) {
-          data.repositories.forEach((r, idx) => {
-            const opt = document.createElement("option");
-            opt.value = r.repo_id;
-            const icon = r.is_remote ? "🌐 " : "📁 ";
-            opt.innerText = `${icon}${r.repo_id} (${r.symbol_count} symbols)`;
-            opt.setAttribute("data-count", r.symbol_count);
-            opt.setAttribute("data-remote", r.is_remote ? "true" : "false");
-            opt.setAttribute("data-url", r.repo_url || "");
-            if (idx === 0) opt.selected = true;
-            repoSelect.appendChild(opt);
-          });
-          const first = data.repositories[0];
-          symbolCount.innerText = first.symbol_count;
-          activeRepoTag.innerText = first.repo_id;
-        } else {
-          repoSelect.innerHTML = `<option value="">No repos found. Index one below.</option>`;
-          symbolCount.innerText = "0";
-          activeRepoTag.innerText = "No repo selected";
+        // Update stats counters
+        document.getElementById("statReposCount").innerText = activeReposList.length;
+        document.getElementById("navRepoBadge").innerText = activeReposList.length;
+        
+        let totalSyms = 0;
+        activeReposList.forEach(r => totalSyms += (r.symbol_count || 0));
+        document.getElementById("statSymbolsCount").innerText = totalSyms.toLocaleString();
+
+        // Update Step 1 badge
+        const step1Badge = document.getElementById("step1StatusBadge");
+        if (step1Badge) {
+          if (activeReposList.length > 0) {
+            step1Badge.className = "text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+            step1Badge.innerText = `✓ ${activeReposList.length} Indexed`;
+          } else {
+            step1Badge.className = "text-[10px] px-2 py-0.5 rounded-full font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20";
+            step1Badge.innerText = "Needs 1st Repo";
+          }
         }
+
+        if (activeReposList.length === 0) {
+          container.innerHTML = `
+            <div class="col-span-full text-slate-400 text-center py-10 bg-surface-card rounded-2xl border border-surface-border p-6">
+              <div class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 mx-auto flex items-center justify-center mb-2">
+                <i data-lucide="folder-git-2" class="w-5 h-5"></i>
+              </div>
+              <h4 class="text-sm font-bold text-white mb-1">No repositories indexed yet</h4>
+              <p class="text-xs text-slate-400 max-w-sm mx-auto mb-4">Paste a Git repository URL above to build your first AST graph.</p>
+              <button onclick="document.getElementById('indexRepoPath')?.focus()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
+                Index Now
+              </button>
+            </div>
+          `;
+          if (window.lucide) lucide.createIcons();
+          return;
+        }
+
+        container.innerHTML = activeReposList.map(repo => {
+          const isRemote = repo.is_remote;
+          const symbols = (repo.symbol_count || 0).toLocaleString();
+          return `
+            <div class="bg-surface-card border border-surface-border hover:border-surface-accentBorder rounded-2xl p-5 flex flex-col justify-between transition">
+              <div>
+                <div class="flex items-start justify-between gap-2 mb-2">
+                  <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center shrink-0">
+                      <i data-lucide="${isRemote ? 'globe' : 'folder'}" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                      <h4 class="text-xs font-bold text-white font-mono">${escapeHtml(repo.repo_id)}</h4>
+                      <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(repo.branch ? `branch: ${repo.branch}` : 'default branch')}</span>
+                    </div>
+                  </div>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> AST Ready
+                  </span>
+                </div>
+
+                <p class="text-[11px] text-slate-400 font-mono truncate mb-3" title="${escapeHtml(repo.repo_url || repo.repo_path || '')}">
+                  ${escapeHtml(repo.repo_url || repo.repo_path || 'Local storage')}
+                </p>
+
+                <div class="flex items-center gap-3 text-xs text-slate-300 font-mono py-2 px-3 bg-surface-base rounded-xl border border-surface-border/60 mb-4">
+                  <div><span class="text-slate-500 text-[10px] uppercase block">Symbols</span><span class="font-bold text-indigo-400">${symbols}</span></div>
+                  <div class="border-l border-surface-border pl-3"><span class="text-slate-500 text-[10px] uppercase block">Commit</span><span class="text-slate-300 text-[11px]">${repo.commit_hash ? repo.commit_hash.slice(0, 7) : 'head'}</span></div>
+                  <div class="border-l border-surface-border pl-3"><span class="text-slate-500 text-[10px] uppercase block">Type</span><span class="text-slate-300 text-[11px]">${isRemote ? 'Remote Git' : 'Local'}</span></div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 pt-2 border-t border-surface-border/50">
+                <button onclick="openFilemapModal('${escapeHtml(repo.repo_id)}')" class="flex-1 py-1.5 rounded-lg bg-surface-base hover:bg-indigo-600/20 text-indigo-300 border border-surface-border hover:border-indigo-500/30 text-xs font-semibold transition flex items-center justify-center gap-1">
+                  <i data-lucide="network" class="w-3.5 h-3.5"></i> Inspect Filemap
+                </button>
+                <button onclick="copyRepoId('${escapeHtml(repo.repo_id)}')" class="px-2.5 py-1.5 rounded-lg bg-surface-base hover:bg-surface-border text-slate-300 text-xs transition" title="Copy Repo ID">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+                <button onclick="prefillReindex('${escapeHtml(repo.repo_url || repo.repo_path || '')}', '${escapeHtml(repo.repo_id)}')" class="px-2.5 py-1.5 rounded-lg bg-surface-base hover:bg-surface-border text-slate-300 text-xs transition" title="Re-index">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
+        if (window.lucide) lucide.createIcons();
       } catch (err) {
-        if (!err.message?.includes("401")) {
-          repoSelect.innerHTML = `<option value="">Could not load repos</option>`;
-        }
+        container.innerHTML = `<div class="col-span-full text-red-400 text-center py-6">Failed to load repos: ${escapeHtml(err.message)}</div>`;
       }
     }
 
-
-    // -------------------------------------------------------------
-    // Repository Indexer & Auto-Derivation
-    // -------------------------------------------------------------
-    function toggleIndexAccordion() {
-      const panel = document.getElementById("indexFormPanel");
-      const chevron = document.getElementById("indexChevron");
-      panel.classList.toggle("hidden");
-      chevron.classList.toggle("rotate-180");
+    function prefillReindex(path, id) {
+      document.getElementById("indexRepoPath").value = path;
+      document.getElementById("indexRepoId").value = id;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      document.getElementById("indexRepoPath").focus();
     }
 
-    function autoDeriveRepoId(val) {
-      const repoIdInput = document.getElementById("indexRepoId");
-      if (repoIdInput.dataset.manuallyEdited === "true") return;
-      val = val.trim().replace(/\/+$/, "").replace(/\.git$/, "");
-      if (!val) {
-        repoIdInput.value = "";
-        return;
-      }
-      let candidate = "";
-      if (val.includes("://") || val.startsWith("git@")) {
-        const parts = val.split("/").filter(Boolean);
-        if (parts.length >= 2 && !parts[parts.length - 1].startsWith("http")) {
-          candidate = parts[parts.length - 2] + "_" + parts[parts.length - 1];
-        } else if (parts.length >= 1) {
-          candidate = parts[parts.length - 1];
-        }
-      } else {
-        const parts = val.split(/[\\/]/).filter(Boolean);
-        candidate = parts.length > 0 ? parts[parts.length - 1] : val;
-      }
-      repoIdInput.value = candidate.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+    function copyRepoId(id) {
+      navigator.clipboard.writeText(id);
+      showToast(`Repo ID '${id}' copied to clipboard!`);
     }
 
-    document.getElementById("indexRepoId")?.addEventListener("input", function() {
-      this.dataset.manuallyEdited = "true";
-    });
-
+    // Start Indexing Job
     async function startIndexing() {
-      const source = document.getElementById("indexRepoPath").value.trim();
-      const repoId = document.getElementById("indexRepoId").value.trim();
-      const branch = document.getElementById("indexRepoBranch") ? document.getElementById("indexRepoBranch").value.trim() : "";
-      const statusDiv = document.getElementById("indexStatus");
+      const sourceInput = document.getElementById("indexRepoPath");
+      const idInput = document.getElementById("indexRepoId");
+      const branchInput = document.getElementById("indexRepoBranch");
       const btn = document.getElementById("startIndexBtn");
+      const btnText = document.getElementById("startIndexBtnText");
+      const statusDiv = document.getElementById("indexStatus");
+      const progressDiv = document.getElementById("indexProgress");
+
+      const source = sourceInput.value.trim();
+      const repoId = idInput.value.trim() || undefined;
+      const branch = branchInput.value.trim() || undefined;
 
       if (!source) {
-        alert("Please enter a public Git repository URL or local path.");
+        showToast("Please provide a repository URL or path.", "error");
+        sourceInput.focus();
         return;
       }
 
       btn.disabled = true;
-      const isRemote = source.startsWith("http://") || source.startsWith("https://") || source.startsWith("git@") || source.startsWith("ssh://") || source.startsWith("git://") || source.includes(".git") || source.includes("github.com") || source.includes("gitlab.com");
-
-      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Indexing...`;
-      lucide.createIcons();
-
-      statusDiv.classList.remove("hidden");
-      statusDiv.className = "text-[11px] p-2.5 rounded bg-surface-base border border-indigo-500/30 text-indigo-300";
-      statusDiv.innerText = "Indexing started. You can follow file-by-file progress below.";
-      const progressPanel = document.getElementById("indexProgress");
-      progressPanel.classList.remove("hidden");
-      updateIndexProgress({
-        phase: "queued",
-        percent: 0,
-        total_files: 0,
-        files_completed: 0,
-        current_file: null,
-        symbols_indexed: 0,
-        embeddings_generated: 0,
-      });
+      btnText.innerText = "Indexing in Progress...";
+      statusDiv.classList.add("hidden");
+      progressDiv.classList.remove("hidden");
 
       try {
-        const payload = {
-          repo_id: repoId || undefined,
-          branch: branch || undefined,
-        };
+        const isRemote = source.startsWith("http://") || source.startsWith("https://") || source.startsWith("git@") || source.endsWith(".git");
+        const payload = { repo_id: repoId, branch };
         if (isRemote) {
           payload.repo_url = source;
         } else {
@@ -1039,995 +1209,690 @@
           body: JSON.stringify(payload)
         });
         const started = await res.json();
-        if (!res.ok) {
-          throw new Error(started.detail || "Could not start indexing");
-        }
+        if (!res.ok) throw new Error(started.detail || "Could not start indexing");
 
         let job = started;
         while (job.status !== "completed" && job.status !== "failed") {
           updateIndexProgress(job);
-          await new Promise(resolve => setTimeout(resolve, 900));
-          const progressResponse = await authFetch(
-            `${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(started.job_id)}`
-          );
-          job = await progressResponse.json();
-          if (!progressResponse.ok) {
-            throw new Error(job.detail || "Could not read indexing progress");
-          }
+          await new Promise(r => setTimeout(r, 900));
+          const pollRes = await authFetch(`${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(started.job_id)}`);
+          job = await pollRes.json();
+          if (!pollRes.ok) throw new Error(job.detail || "Could not poll indexing job");
         }
 
         updateIndexProgress(job);
-        if (job.status === "failed") {
-          throw new Error(job.error || "Indexing failed");
-        }
+        if (job.status === "failed") throw new Error(job.error || "Indexing failed");
 
         const result = job.result || {};
-        statusDiv.className = "text-[11px] p-2.5 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-300";
-        const branchTag = result.branch ? ` [branch: ${result.branch}]` : "";
-        statusDiv.innerText = `✅ Indexed ${result.symbols_indexed || job.symbols_indexed || 0} symbols under repo '${result.repo_id || repoId || "repository"}'${branchTag}.`;
+        statusDiv.className = "text-xs p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300";
+        statusDiv.innerHTML = `✓ Successfully indexed <strong>${result.symbols_indexed || job.symbols_indexed || 0}</strong> symbols under repo <strong>'${result.repo_id || repoId || "repository"}'</strong>.`;
+        statusDiv.classList.remove("hidden");
+
+        showToast(`Repository '${result.repo_id || repoId}' indexed successfully!`);
         await loadRepositories();
-        if (result.repo_id) {
-          repoSelect.value = result.repo_id;
-          activeRepoTag.innerText = result.repo_id;
-          symbolCount.innerText = result.symbols_indexed || job.symbols_indexed || 0;
-        }
       } catch (err) {
-        statusDiv.className = "text-[11px] p-2.5 rounded bg-red-950/40 border border-red-500/30 text-red-300";
-        statusDiv.innerText = `❌ Error: ${err.message}`;
+        statusDiv.className = "text-xs p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300";
+        statusDiv.innerHTML = `✗ Indexing error: ${escapeHtml(err.message)}`;
+        statusDiv.classList.remove("hidden");
+        showToast(err.message, "error");
       } finally {
         btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="scan" class="w-3.5 h-3.5"></i> Clone & Index Repository`;
-        lucide.createIcons();
+        btnText.innerText = "Start Indexing Repository";
+        if (window.lucide) lucide.createIcons();
       }
     }
 
     function updateIndexProgress(job) {
       const phases = {
-        queued: "Queued",
-        preparing: "Preparing repository",
-        parsing: "Parsing Python files",
-        embedding: "Generating embeddings and indexing",
+        queued: "Queued in background",
+        preparing: "Preparing & cloning repository",
+        parsing: "Parsing AST in Python modules",
+        embedding: "Generating vector embeddings",
         completed: "Indexing complete",
         failed: "Indexing failed",
       };
       const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
-      document.getElementById("indexPhase").textContent = phases[job.phase] || "Indexing repository";
-      document.getElementById("indexPercent").textContent = `${percent}%`;
+      document.getElementById("indexPhase").innerText = phases[job.phase] || "Indexing codebase...";
+      document.getElementById("indexPercent").innerText = `${percent}%`;
       document.getElementById("indexProgressBar").style.width = `${percent}%`;
-      document.getElementById("indexFilesFound").textContent = Number(job.total_files) || 0;
-      document.getElementById("indexFilesCompleted").textContent = Number(job.files_completed) || 0;
-      document.getElementById("indexCurrentFile").textContent = job.current_file || (job.status === "completed" ? "Done" : "Waiting...");
-      document.getElementById("indexSymbolsCount").textContent = Number(job.symbols_indexed) || 0;
-      document.getElementById("indexEmbeddingsCount").textContent = Number(job.embeddings_generated) || 0;
+      document.getElementById("indexFilesFound").innerText = Number(job.total_files) || 0;
+      document.getElementById("indexFilesCompleted").innerText = Number(job.files_completed) || 0;
+      document.getElementById("indexSymbolsCount").innerText = Number(job.symbols_indexed) || 0;
+      document.getElementById("indexEmbeddingsCount").innerText = Number(job.embeddings_generated) || 0;
+      document.getElementById("indexCurrentFile").innerText = job.current_file || (job.status === "completed" ? "Done" : "Waiting...");
     }
 
-    // -------------------------------------------------------------
-    // Chat & Streaming Logic (SSE Reader)
-    // -------------------------------------------------------------
-    function handleKeyDown(event) {
-      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-        event.preventDefault();
-        handleChatSubmit(event);
-      }
-    }
+    // Filemap Modal
+    async function openFilemapModal(repoId) {
+      const modal = document.getElementById("filemapModal");
+      const title = document.getElementById("filemapRepoTitle");
+      const subtitle = document.getElementById("filemapSubtitle");
+      const content = document.getElementById("filemapContent");
 
-    function useSamplePrompt(text) {
-      taskInput.value = text;
-      taskInput.focus();
-    }
-
-    function updateAgentStatus(status, label, color) {
-      agentStatusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${color}"></span> ${label}`;
-    }
-
-    async function handleChatSubmit(event) {
-      if (event) event.preventDefault();
-      const task = taskInput.value.trim();
-      const repoId = repoSelect.value;
-      const interactive = interactiveToggle.checked;
-
-      if (!task) return;
-      if (!repoId) {
-        alert("Please select or index a repository first.");
-        return;
-      }
-      if (isRunning) return;
-
-      // Hide welcome
-      const welcome = document.getElementById("welcomeCard");
-      if (welcome) welcome.style.display = "none";
-
-      // Append User Message
-      appendUserMessage(task);
-      taskInput.value = "";
-
-      // Create Agent Container for this run
-      const runContainer = createAgentRunContainer();
-
-      setRunningState(true);
-      updateAgentStatus("running", "Running Graph", "bg-indigo-400 animate-pulse");
-
-      const payload = {
-        task: task,
-        repo_id: repoId,
-        interactive: interactive
-      };
+      title.innerText = `Filemap: ${repoId}`;
+      subtitle.innerText = "Loading symbol graph from MongoDB...";
+      content.innerHTML = `<div class="text-slate-500 text-center py-10">Fetching AST symbol map...</div>`;
+      modal.classList.remove("hidden");
 
       try {
-        await streamSSE(`${API_BASE_URL}/api/agent/stream`, payload, runContainer);
-      } catch (err) {
-        appendErrorCard(runContainer, err.message);
-        setRunningState(false);
-        updateAgentStatus("idle", "Idle", "bg-slate-400");
-      }
-    }
+        const res = await authFetch(`${API_BASE_URL}/api/repos/${encodeURIComponent(repoId)}/filemap`);
+        if (!res.ok) throw new Error("Could not retrieve filemap");
+        const data = await res.json();
+        const files = data.file_map || data.files || {};
+        const fileKeys = Object.keys(files);
 
-    // -------------------------------------------------------------
-    // Helper Utilities for Defensive JSON & UI Formatting
-    // -------------------------------------------------------------
-    function extractJsonSafe(str) {
-      if (!str) return null;
-      if (typeof str === "object") return str;
-      if (typeof str !== "string") return null;
-      const trimmed = str.trim();
-      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-        try {
-          return JSON.parse(trimmed);
-        } catch (e) {
-          try {
-            const clean = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-            return JSON.parse(clean);
-          } catch (e2) {
-            return null;
-          }
+        subtitle.innerText = `${fileKeys.length} files parsed with top-level AST declarations`;
+
+        if (fileKeys.length === 0) {
+          content.innerHTML = `<div class="text-slate-500 text-center py-6">No symbols found for this repo.</div>`;
+          return;
         }
-      }
-      return null;
-    }
 
-    function formatResultPreview(text) {
-      if (!text) return "";
-      const parsed = extractJsonSafe(text);
-      if (parsed) {
-        return JSON.stringify(parsed, null, 2);
-      }
-      return text;
-    }
-
-    function normalizeAwaitingHumanData(data) {
-      if (!data) return;
-      if (typeof data.prompt === "string") {
-        const parsed = extractJsonSafe(data.prompt);
-        if (parsed && typeof parsed === "object") {
-          if (parsed.reasoning && !data.reasoning) data.reasoning = parsed.reasoning;
-          if (parsed.plan && (!data.plan || data.plan.length === 0)) data.plan = parsed.plan;
-          if (parsed.reflection && !data.reflection) data.reflection = parsed.reflection;
-          data.prompt = "Analysis complete. Review the execution plan and findings below before generating the final specification.";
-        }
-      }
-      if (!data.plan) data.plan = [];
-    }
-
-    function addReviewSuggestion(text) {
-      const cardInput = document.getElementById("cardFeedbackInput");
-      const bottomInput = document.getElementById("hitlFeedbackInput");
-      const current = (cardInput ? cardInput.value.trim() : "") || (bottomInput ? bottomInput.value.trim() : "");
-      const next = current ? `${current}; ${text}` : text;
-      if (cardInput) {
-        cardInput.value = next;
-        cardInput.focus();
-      }
-      if (bottomInput) {
-        bottomInput.value = next;
-      }
-    }
-
-    function syncFeedbackInputs(val) {
-      const cardInput = document.getElementById("cardFeedbackInput");
-      const bottomInput = document.getElementById("hitlFeedbackInput");
-      if (cardInput && cardInput.value !== val) cardInput.value = val;
-      if (bottomInput && bottomInput.value !== val) bottomInput.value = val;
-    }
-
-    function scrollToReviewCard() {
-      const card = document.querySelector(".human-review-card:not(.decided)") || document.querySelector(".human-review-card");
-      if (card) {
-        card.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-
-    function toggleStepDrawer(id) {
-      const el = document.getElementById(id);
-      if (el) el.classList.toggle("hidden");
-    }
-
-    async function submitReviewFeedback(feedbackType) {
-      if (!activeThreadId) return;
-
-      const cardInput = document.getElementById("cardFeedbackInput");
-      const bottomInput = document.getElementById("hitlFeedbackInput");
-      const userText = (cardInput ? cardInput.value.trim() : "") || (bottomInput ? bottomInput.value.trim() : "");
-
-      let feedback = feedbackType;
-      if (feedbackType === "revise") {
-        feedback = userText ? `revise: ${userText}` : "revise: please re-evaluate tools and refine the plan";
-      }
-
-      hitlGateContainer.classList.add("hidden");
-      isAwaitingHuman = false;
-
-      // Find active run container
-      const runContainer = document.querySelector(`[data-thread-id="${activeThreadId}"]`) || chatFeed.lastElementChild;
-      
-      // Update decision state in active review card
-      updateReviewCardDecision(runContainer, feedbackType, feedback);
-
-      // Append reviewer note
-      appendHumanReviewDecision(runContainer, feedback);
-
-      setRunningState(true);
-      updateAgentStatus("running", "Resuming...", "bg-indigo-400 animate-pulse");
-
-      try {
-        await streamSSE(`${API_BASE_URL}/api/agent/feedback`, {
-          thread_id: activeThreadId,
-          feedback: feedback
-        }, runContainer);
-      } catch (err) {
-        appendErrorCard(runContainer, err.message);
-        setRunningState(false);
-      }
-    }
-
-    // Modern fetch-based SSE Stream Reader
-    async function streamSSE(url, payload, container) {
-      const token = getAuthToken();
-      const headers = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const streamUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
-
-      const response = await fetch(streamUrl, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify(payload)
-      });
-
-      if (response.status === 401) {
-        handleLogout("Session expired. Please sign in again.");
-        throw new Error("Authentication session expired (401).");
-      }
-
-      if (!response.ok) {
-        let errDetail = `Server responded with status ${response.status}`;
-        try {
-          const errJson = await response.json();
-          if (errJson && errJson.detail) {
-            if (typeof errJson.detail === "object" && errJson.detail.message) {
-              errDetail = errJson.detail.message;
-            } else {
-              errDetail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
-            }
-          }
-        } catch (_) {
-          try {
-            const errText = await response.text();
-            if (errText) errDetail = errText;
-          } catch (__) {}
-        }
-        throw new Error(errDetail);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop(); // keep trailing incomplete chunk
-
-        let currentEvent = null;
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("event: ")) {
-            currentEvent = trimmed.slice(7).trim();
-          } else if (trimmed.startsWith("data: ") && currentEvent) {
-            const dataStr = trimmed.slice(6).trim();
-            try {
-              const data = JSON.parse(dataStr);
-              handleAgentEvent(currentEvent, data, container);
-            } catch (e) {
-              handleAgentEvent(currentEvent, { raw: dataStr }, container);
-            }
-            currentEvent = null;
-          }
-        }
-      }
-    }
-
-    // -------------------------------------------------------------
-    // Event Handler & DOM Building
-    // -------------------------------------------------------------
-    function handleAgentEvent(event, data, container) {
-      switch (event) {
-        case "session_start":
-          activeThreadId = data.thread_id;
-          container.setAttribute("data-thread-id", data.thread_id);
-          activeThreadDisplay.innerText = data.thread_id;
-          break;
-
-        case "node_update":
-          handleNodeUpdate(data, container);
-          break;
-
-        case "awaiting_human":
-          activeThreadId = data.thread_id;
-          isAwaitingHuman = true;
-          setRunningState(false);
-          updateAgentStatus("paused", "Awaiting Approval", "bg-amber-400 animate-pulse");
-          
-          // Defensively sanitize and structure review payload
-          normalizeAwaitingHumanData(data);
-
-          // Append rich Approval Review Card to chat stream
-          appendHumanReviewCard(container, data);
-
-          // Update and show floating bottom review bar
-          hitlPromptText.innerText = data.prompt || "Review the plan above or approve to author final specification.";
-          hitlGateContainer.classList.remove("hidden");
-          hitlFeedbackInput.value = "";
-          break;
-
-        case "completed":
-          setRunningState(false);
-          updateAgentStatus("idle", "Completed", "bg-emerald-400");
-          if (data.final_spec) {
-            appendFinalSpecCard(container, data.final_spec);
-          }
-          break;
-
-        case "error":
-          setRunningState(false);
-          updateAgentStatus("error", "Error", "bg-red-400");
-          appendErrorCard(container, data.error);
-          break;
-      }
-      scrollToBottom();
-    }
-
-    function handleNodeUpdate(data, container) {
-      const node = data.node;
-      const stepsList = container.querySelector(".agent-steps-list");
-
-      if (node === "planner") {
-        appendPlannerStep(stepsList, data);
-      } else if (node === "tool_caller") {
-        appendToolCallerStep(stepsList, data);
-      } else if (node === "reflector") {
-        appendReflectorStep(stepsList, data);
-      } else if (node === "spec_writer") {
-        if (data.final_spec) {
-          appendFinalSpecCard(container, data.final_spec);
-        }
-      }
-    }
-
-    // DOM Step Builders
-    function appendUserMessage(text) {
-      const div = document.createElement("div");
-      div.className = "flex items-start gap-3 max-w-3xl ml-auto justify-end";
-      div.innerHTML = `
-        <div class="bg-indigo-600/90 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs shadow-md leading-relaxed font-sans max-w-lg">
-          ${escapeHtml(text)}
-        </div>
-        <div class="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-300">
-          <i data-lucide="user" class="w-3.5 h-3.5"></i>
-        </div>
-      `;
-      chatFeed.appendChild(div);
-      lucide.createIcons();
-    }
-
-    function createAgentRunContainer() {
-      const container = document.createElement("div");
-      container.className = "space-y-3 max-w-4xl mr-auto w-full";
-      container.innerHTML = `
-        <div class="flex items-center gap-2 mb-2">
-          <div class="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-            <i data-lucide="bot" class="w-3.5 h-3.5"></i>
-          </div>
-          <span class="text-xs font-semibold text-slate-300">Agent Reasoning Pipeline</span>
-        </div>
-        <div class="agent-steps-list space-y-2.5"></div>
-      `;
-      chatFeed.appendChild(container);
-      lucide.createIcons();
-      return container;
-    }
-
-    function appendPlannerStep(stepsList, data) {
-      const div = document.createElement("div");
-      div.className = "p-3.5 rounded-xl bg-surface-card border border-surface-border text-xs";
-      
-      let stepsHtml = "";
-      if (data.plan && data.plan.length > 0) {
-        stepsHtml = data.plan.map((s, i) => `
-          <div class="flex items-start gap-2 text-[11px] py-1 border-b border-surface-border/40 last:border-none">
-            <span class="w-5 h-5 rounded bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-mono font-bold shrink-0 text-[10px]">${i+1}</span>
-            <div class="flex-1">
-              <span class="text-slate-200 font-medium">${escapeHtml(s.description)}</span>
-              <span class="text-[10px] text-indigo-400 font-mono ml-1.5 px-1.5 py-0.5 rounded bg-indigo-500/10">${escapeHtml(s.tool_name)}</span>
-              ${s.rationale ? `<div class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(s.rationale)}</div>` : ""}
-            </div>
-          </div>
-        `).join("");
-      }
-
-      div.innerHTML = `
-        <div class="flex items-center justify-between font-semibold text-indigo-300 mb-2">
-          <span class="flex items-center gap-1.5">
-            <i data-lucide="brain" class="w-4 h-4 text-indigo-400"></i> Plan Generated (Iteration ${data.iteration || 1})
-          </span>
-          <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-base border border-surface-border text-slate-400">${data.plan ? data.plan.length : 0} Steps</span>
-        </div>
-        ${data.reasoning ? `
-          <div class="mb-2.5 p-2.5 rounded-lg bg-indigo-950/20 border border-indigo-500/20 text-[11px] text-indigo-200 leading-relaxed font-sans">
-            <strong class="text-indigo-400 font-semibold block mb-0.5">Strategy:</strong>
-            ${escapeHtml(data.reasoning)}
-          </div>
-        ` : ""}
-        <div class="space-y-1 bg-surface-base/50 p-2 rounded-lg border border-surface-border/30">
-          ${stepsHtml}
-        </div>
-      `;
-      stepsList.appendChild(div);
-      lucide.createIcons();
-    }
-
-    function appendToolCallerStep(stepsList, data) {
-      const div = document.createElement("div");
-      div.className = "p-3 rounded-xl bg-surface-card border border-surface-border text-xs";
-
-      const isError = Boolean(data.error);
-      const iconColor = isError ? "text-red-400" : "text-emerald-400";
-      const iconName = isError ? "alert-triangle" : "check-circle-2";
-
-      div.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor}"></i>
-            <span class="font-mono font-medium text-slate-200">${escapeHtml(data.tool)}</span>
-          </div>
-          <span class="text-[10px] font-mono text-slate-400">Step ${data.current_step} executed</span>
-        </div>
-        ${data.result_preview ? `
-          <div class="mt-2 p-2 rounded bg-surface-base border border-surface-border font-mono text-[11px] text-slate-400 overflow-x-auto whitespace-pre-wrap max-h-40 custom-scrollbar">${escapeHtml(formatResultPreview(data.result_preview))}</div>
-        ` : ""}
-        ${data.error ? `
-          <div class="mt-2 p-2 rounded bg-red-950/40 border border-red-500/30 font-mono text-[11px] text-red-300">${escapeHtml(data.error)}</div>
-        ` : ""}
-      `;
-      stepsList.appendChild(div);
-      lucide.createIcons();
-    }
-
-    function appendReflectorStep(stepsList, data) {
-      if (!data.reflection) return;
-      const div = document.createElement("div");
-      div.className = "p-3 rounded-xl bg-amber-950/20 border border-amber-500/20 text-xs";
-      div.innerHTML = `
-        <div class="flex items-center gap-1.5 font-semibold text-amber-300 mb-1">
-          <i data-lucide="eye" class="w-3.5 h-3.5"></i> Agent Self-Critique & Reflection
-        </div>
-        <div class="text-[11px] text-amber-200/80 leading-relaxed font-sans">
-          ${escapeHtml(data.reflection)}
-        </div>
-      `;
-      stepsList.appendChild(div);
-      lucide.createIcons();
-    }
-
-    // -------------------------------------------------------------
-    // Human-in-the-Loop Approval Card Builder
-    // -------------------------------------------------------------
-    function appendHumanReviewCard(container, data) {
-      // Remove any existing active review card to avoid duplicates
-      const existing = container.querySelector(".human-review-card:not(.decided)");
-      if (existing) existing.remove();
-
-      const card = document.createElement("div");
-      card.className = "human-review-card mt-4 rounded-2xl bg-gradient-to-b from-amber-950/25 via-surface-card to-surface-card border-2 border-amber-500/50 shadow-2xl shadow-amber-950/30 overflow-hidden transition-all duration-300";
-      
-      const cardId = "rev_" + Math.random().toString(36).substring(2, 9);
-      const plan = Array.isArray(data.plan) ? data.plan : [];
-      const totalSteps = data.stats?.total_steps || plan.length;
-      const completedSteps = data.stats?.completed_steps || plan.filter(s => s.status === "done").length;
-      const targetRepo = data.repo_id || repoSelect.value || "Codebase";
-
-      let stepsHtml = "";
-      if (plan.length > 0) {
-        stepsHtml = plan.map((step, idx) => {
-          const isDone = step.status === "done" || idx < completedSteps;
-          const statusBadge = isDone
-            ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i data-lucide="check" class="w-2.5 h-2.5"></i> Executed</span>`
-            : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"><i data-lucide="clock" class="w-2.5 h-2.5"></i> Proposed</span>`;
-          
-          const drawerId = `step_drawer_${cardId}_${idx}`;
-          const hasDetails = step.tool_args || step.result || step.rationale;
-
-          let drawerContent = "";
-          if (step.rationale) {
-            drawerContent += `<div class="mb-1.5 text-slate-400"><strong class="text-slate-300">Rationale:</strong> ${escapeHtml(step.rationale)}</div>`;
-          }
-          if (step.tool_args && Object.keys(step.tool_args).length > 0) {
-            drawerContent += `<div class="mb-1.5 text-slate-400 font-mono text-[10px]"><strong class="text-slate-300 font-sans">Arguments:</strong><pre class="mt-1 p-1.5 rounded bg-surface-base text-slate-300 overflow-x-auto">${escapeHtml(JSON.stringify(step.tool_args, null, 2))}</pre></div>`;
-          }
-          if (step.result) {
-            const resStr = typeof step.result === "object" ? JSON.stringify(step.result, null, 2) : String(step.result);
-            drawerContent += `<div class="text-slate-400 font-mono text-[10px]"><strong class="text-slate-300 font-sans">Result preview:</strong><pre class="mt-1 p-1.5 rounded bg-surface-base text-slate-300 whitespace-pre-wrap max-h-36 overflow-y-auto custom-scrollbar">${escapeHtml(resStr.slice(0, 500))}</pre></div>`;
-          }
-
+        content.innerHTML = fileKeys.map(filePath => {
+          const syms = files[filePath] || [];
           return `
-            <div class="p-3 rounded-xl bg-surface-base/70 border border-surface-border/60 hover:border-surface-accentBorder transition">
-              <div class="flex items-start justify-between gap-2">
-                <div class="flex items-start gap-2.5 flex-1">
-                  <span class="w-6 h-6 rounded-lg ${isDone ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"} flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">${idx + 1}</span>
-                  <div class="flex-1">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="text-xs font-semibold text-slate-100">${escapeHtml(step.description || "Execute Tool")}</span>
-                      <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${escapeHtml(step.tool_name || "tool")}</span>
-                      ${statusBadge}
-                    </div>
-                    ${step.rationale ? `<p class="text-[11px] text-slate-400 mt-1">${escapeHtml(step.rationale)}</p>` : ""}
-                  </div>
-                </div>
-                ${hasDetails ? `
-                  <button type="button" onclick="toggleStepDrawer('${drawerId}')" class="text-[10px] font-mono text-slate-400 hover:text-indigo-300 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-indigo-500/30 transition shrink-0 flex items-center gap-1">
-                    Details <i data-lucide="chevron-down" class="w-3 h-3"></i>
-                  </button>
-                ` : ""}
+            <div class="border border-surface-border rounded-xl p-3 bg-surface-base">
+              <div class="text-slate-200 font-bold text-xs flex items-center gap-1.5 mb-2">
+                <i data-lucide="file-code" class="w-3.5 h-3.5 text-cyan-400"></i>
+                <span>${escapeHtml(filePath)}</span>
+                <span class="text-[10px] text-slate-500 font-normal">(${syms.length} symbols)</span>
               </div>
-              ${hasDetails ? `
-                <div id="${drawerId}" class="hidden mt-2.5 pt-2 border-t border-surface-border/40 text-[11px] font-sans">
-                  ${drawerContent}
-                </div>
-              ` : ""}
+              <div class="pl-4 space-y-1">
+                ${syms.map(s => `
+                  <div class="text-[11px] text-slate-300 flex items-center justify-between">
+                    <span class="flex items-center gap-1.5">
+                      <span class="text-[9px] px-1 py-0.2 rounded font-mono ${s.type === 'class' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-cyan-500/20 text-cyan-300'}">${s.type || 'def'}</span>
+                      <strong class="text-white">${escapeHtml(s.name)}</strong>
+                      <span class="text-slate-500 text-[10px] truncate max-w-sm">${escapeHtml(s.signature || '')}</span>
+                    </span>
+                    <span class="text-[10px] text-slate-500 font-mono">L${s.lines}</span>
+                  </div>
+                `).join("")}
+              </div>
             </div>
           `;
         }).join("");
-      } else {
-        stepsHtml = `<div class="p-3 rounded-lg bg-surface-base/40 text-slate-400 text-xs italic">No specific steps defined. Ready for architectural review.</div>`;
+        if (window.lucide) lucide.createIcons();
+      } catch (err) {
+        content.innerHTML = `<div class="text-red-400 text-center py-6">Error: ${escapeHtml(err.message)}</div>`;
       }
-
-      card.innerHTML = `
-        <!-- Top Status Banner -->
-        <div class="px-5 py-4 bg-amber-500/10 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner shrink-0">
-              <i data-lucide="shield-check" class="w-5 h-5"></i>
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="text-xs font-bold text-amber-100 uppercase tracking-wider">Human-in-the-Loop Review Gate</h3>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Approval Required
-                </span>
-              </div>
-              <p class="text-xs text-amber-200/90 mt-0.5">The agent has finished codebase AST traversal and is awaiting your verification before authoring the final specification.</p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 text-[11px] font-mono text-slate-300">
-            <span class="px-2.5 py-1 rounded-lg bg-surface-base/80 border border-surface-border flex items-center gap-1.5">
-              <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-400"></i> ${completedSteps}/${totalSteps} Steps Complete
-            </span>
-            <span class="px-2.5 py-1 rounded-lg bg-surface-base/80 border border-surface-border flex items-center gap-1.5">
-              <i data-lucide="git-branch" class="w-3.5 h-3.5 text-indigo-400"></i> ${escapeHtml(targetRepo)}
-            </span>
-          </div>
-        </div>
-
-        <!-- Body Content -->
-        <div class="p-5 space-y-4">
-          
-          <!-- Strategy / Reasoning Section -->
-          ${data.reasoning ? `
-            <div class="p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-500/30 text-xs">
-              <div class="flex items-center gap-2 text-indigo-300 font-semibold mb-1.5 text-xs">
-                <i data-lucide="brain-circuit" class="w-4 h-4 text-indigo-400"></i>
-                <span>Architectural Approach & Strategy</span>
-              </div>
-              <p class="text-slate-200 text-xs leading-relaxed font-sans">${escapeHtml(data.reasoning)}</p>
-            </div>
-          ` : ""}
-
-          <!-- Execution Plan & Verification -->
-          <div class="space-y-2.5">
-            <div class="flex items-center justify-between">
-              <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <i data-lucide="list-checks" class="w-4 h-4 text-indigo-400"></i> Execution Steps & Traversals
-              </h4>
-              <span class="text-[11px] text-slate-400 font-mono">${plan.length} Steps Defined</span>
-            </div>
-            <div class="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
-              ${stepsHtml}
-            </div>
-          </div>
-
-          <!-- Agent Critique & Self-Reflection -->
-          ${data.reflection ? `
-            <div class="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/25 text-xs">
-              <div class="flex items-center gap-2 text-amber-300 font-semibold mb-1.5 text-xs">
-                <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i>
-                <span>Agent Self-Critique & Risk Analysis</span>
-              </div>
-              <div class="text-amber-200/90 text-xs leading-relaxed font-sans whitespace-pre-wrap">${escapeHtml(data.reflection)}</div>
-            </div>
-          ` : ""}
-
-          <!-- Decision Console -->
-          <div class="decision-console-area pt-4 border-t border-surface-border/60 space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-emerald-400"></i> Review Decision
-              </span>
-              <span class="text-[11px] text-slate-400">Approve to write specification or request revisions</span>
-            </div>
-
-            <!-- Quick Suggestion Chips -->
-            <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span class="text-slate-400 text-[10px] uppercase font-semibold mr-1">Quick Suggestions:</span>
-              <button type="button" onclick="addReviewSuggestion('Focus on blast radius and upstream callers')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ Blast Radius</button>
-              <button type="button" onclick="addReviewSuggestion('Include detailed rollback and migration fallback plan')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ Rollback Plan</button>
-              <button type="button" onclick="addReviewSuggestion('Check database connection pooling and caching impacts')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ DB / Caching</button>
-              <button type="button" onclick="addReviewSuggestion('Detail error handling and test suite requirements')" class="px-2 py-0.5 rounded-full bg-surface-base border border-surface-border text-slate-300 hover:border-indigo-400 hover:text-indigo-300 transition cursor-pointer">+ Error Handling</button>
-            </div>
-
-            <!-- Feedback Guidance Textarea -->
-            <div>
-              <textarea id="cardFeedbackInput" rows="2" placeholder="Optional revision guidance: e.g., 'Also inspect callers of helper methods before refactoring'..." class="w-full bg-surface-base border border-surface-border rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 transition shadow-inner font-sans custom-scrollbar" oninput="syncFeedbackInputs(this.value)"></textarea>
-            </div>
-
-            <!-- Action Buttons Row -->
-            <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <div class="flex items-center gap-2.5">
-                <button type="button" onclick="submitReviewFeedback('approve')" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
-                  <i data-lucide="check" class="w-4 h-4"></i> Approve & Generate Spec
-                </button>
-                <button type="button" onclick="submitReviewFeedback('revise')" class="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs flex items-center gap-2 shadow-md shadow-amber-950/30 transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
-                  <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Request Revisions
-                </button>
-              </div>
-
-              <button type="button" onclick="submitReviewFeedback('stop')" class="px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-950/20 flex items-center gap-1.5 transition cursor-pointer" title="Cancel this agent session">
-                <i data-lucide="x" class="w-3.5 h-3.5"></i> Abort Session
-              </button>
-            </div>
-
-          </div>
-
-        </div>
-      `;
-
-      const stepsList = container.querySelector(".agent-steps-list");
-      if (stepsList) {
-        stepsList.appendChild(card);
-      } else {
-        container.appendChild(card);
-      }
-      lucide.createIcons();
-      scrollToBottom();
     }
 
-    function updateReviewCardDecision(container, feedbackType, feedback) {
-      const card = container ? container.querySelector(".human-review-card:not(.decided)") : null;
-      if (!card) return;
-      card.classList.add("decided");
-
-      const decisionArea = card.querySelector(".decision-console-area");
-      if (!decisionArea) return;
-
-      if (feedbackType === "approve") {
-        decisionArea.innerHTML = `
-          <div class="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between text-xs text-emerald-200">
-            <div class="flex items-center gap-2.5">
-              <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
-                <i data-lucide="check" class="w-4 h-4"></i>
-              </div>
-              <div>
-                <span class="font-bold block text-emerald-100">Plan Approved by You</span>
-                <span class="text-[11px] text-emerald-300/80">Synthesizing production architecture specification...</span>
-              </div>
-            </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Phase 2: Authoring Spec</span>
-          </div>
-        `;
-      } else if (feedbackType === "revise") {
-        decisionArea.innerHTML = `
-          <div class="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center justify-between text-xs text-amber-200">
-            <div class="flex items-center gap-2.5">
-              <div class="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
-                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
-              </div>
-              <div>
-                <span class="font-bold block text-amber-100">Revisions Requested</span>
-                <span class="text-[11px] text-amber-300/80">${escapeHtml(feedback)}</span>
-              </div>
-            </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Replanning</span>
-          </div>
-        `;
-      } else {
-        decisionArea.innerHTML = `
-          <div class="p-3.5 rounded-xl bg-red-950/40 border border-red-500/40 flex items-center gap-2.5 text-xs text-red-200">
-            <i data-lucide="x-circle" class="w-4 h-4 text-red-400"></i>
-            <span>Session Aborted by Reviewer</span>
-          </div>
-        `;
-      }
-      lucide.createIcons();
-    }
-
-    function appendHumanReviewDecision(container, feedback) {
-      const stepsList = container.querySelector(".agent-steps-list");
-      const div = document.createElement("div");
-      div.className = "p-2.5 rounded-lg bg-surface-card border border-indigo-500/30 text-xs flex items-center justify-between";
-      div.innerHTML = `
-        <span class="flex items-center gap-1.5 text-slate-300">
-          <i data-lucide="user-check" class="w-3.5 h-3.5 text-indigo-400"></i> Reviewer feedback provided:
-        </span>
-        <span class="font-mono text-[11px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${escapeHtml(feedback)}</span>
-      `;
-      stepsList.appendChild(div);
-      lucide.createIcons();
-    }
-
-    function appendFinalSpecCard(container, specMarkdown) {
-      // Remove any existing final spec in this container to prevent duplicate renders
-      const existing = container.querySelector(".final-spec-card");
-      if (existing) existing.remove();
-
-      const card = document.createElement("div");
-      card.className = "final-spec-card mt-4 p-5 rounded-2xl bg-surface-card border border-indigo-500/40 shadow-xl shadow-indigo-950/20";
-      
-      const parsedHtml = marked.parse(specMarkdown);
-
-      card.innerHTML = `
-        <div class="flex items-center justify-between pb-3 mb-4 border-b border-surface-border">
-          <div class="flex items-center gap-2">
-            <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-              <i data-lucide="file-check-2" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <h3 class="text-xs font-bold text-white uppercase tracking-wider">Final Architecture Specification</h3>
-              <span class="text-[10px] text-slate-400">Grounded in AST Graph Traversal</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <button onclick="copySpec(this)" class="px-2.5 py-1 rounded-lg text-xs bg-surface-base hover:bg-surface-border text-slate-300 border border-surface-border flex items-center gap-1.5 transition">
-              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
-            </button>
-            <button onclick="downloadSpec()" class="px-2.5 py-1 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center gap-1.5 transition">
-              <i data-lucide="download" class="w-3.5 h-3.5"></i> Download
-            </button>
-          </div>
-        </div>
-        <div class="markdown-body text-xs text-slate-300 font-sans custom-scrollbar">
-          ${parsedHtml}
-        </div>
-      `;
-
-      container.appendChild(card);
-      lucide.createIcons();
-      card.querySelectorAll('pre code').forEach((el) => {
-        hljs.highlightElement(el);
-      });
-      scrollToBottom();
-    }
-
-    function appendErrorCard(container, errorText) {
-      const div = document.createElement("div");
-      div.className = "p-4 rounded-xl bg-red-950/30 border border-red-500/40 text-xs text-red-200";
-      div.innerHTML = `
-        <div class="flex items-center gap-2 font-semibold text-red-300 mb-1">
-          <i data-lucide="x-circle" class="w-4 h-4 text-red-400"></i> Execution Terminated
-        </div>
-        <div class="font-mono text-[11px] text-red-300/80">${escapeHtml(errorText)}</div>
-      `;
-      container.appendChild(div);
-      lucide.createIcons();
+    function closeFilemapModal() {
+      document.getElementById("filemapModal").classList.add("hidden");
     }
 
     // -------------------------------------------------------------
-    // UI Helpers & Utilities
+    // MCP API Keys Management
     // -------------------------------------------------------------
-    function setRunningState(running) {
-      isRunning = running;
-      sendBtn.disabled = running;
-      if (running) {
-        sendBtnText.innerText = "Planning...";
-        sendBtnIcon.setAttribute("data-lucide", "loader-2");
-        sendBtnIcon.classList.add("animate-spin");
-      } else {
-        sendBtnText.innerText = "Run Plan";
-        sendBtnIcon.setAttribute("data-lucide", "arrow-up");
-        sendBtnIcon.classList.remove("animate-spin");
-      }
-      lucide.createIcons();
-    }
-
-    function scrollToBottom() {
-      chatFeed.scrollTop = chatFeed.scrollHeight;
-    }
-
-    function clearChat() {
-      chatFeed.innerHTML = "";
-      activeThreadId = null;
-      activeThreadDisplay.innerText = "None";
-      hitlGateContainer.classList.add("hidden");
-      setRunningState(false);
-      updateAgentStatus("idle", "Idle", "bg-slate-400");
-    }
-
-    function toggleServerConfig() {
-      const modal = document.getElementById("serverConfigModal");
-      modal.classList.toggle("hidden");
-    }
-
-    function saveServerConfig() {
-      let val = document.getElementById("serverBaseUrlInput").value.trim();
-      if (!val) val = "http://localhost:8000";
-      val = val.replace(/\/+$/, ""); // remove trailing slash
-      API_BASE_URL = val;
-      localStorage.setItem("CODEBASE_AGENT_API_URL", val);
-      toggleServerConfig();
-      checkServerHealth();
-      if (getAuthToken()) {
-        loadRepositories();
-      } else {
-        loadVipUsers();
-      }
-    }
-
-    function copySpec(btn) {
-      const specEl = btn.closest(".final-spec-card").querySelector(".markdown-body");
-      navigator.clipboard.writeText(specEl.innerText).then(() => {
-        const orig = btn.innerHTML;
-        btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> Copied!`;
-        lucide.createIcons();
-        setTimeout(() => { btn.innerHTML = orig; lucide.createIcons(); }, 1800);
-      });
-    }
-
-    function downloadSpec() {
-      const activeRepo = repoSelect.value || "codebase";
-      const specEl = document.querySelector(".final-spec-card .markdown-body");
-      if (!specEl) return;
-      const blob = new Blob([specEl.innerText], { type: "text/markdown" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `spec_${activeRepo}_${Date.now()}.md`;
-      a.click();
-    }
-
-    function escapeHtml(str) {
-      if (!str) return "";
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-
-    function toggleMcpModal() {
-      const modal = document.getElementById("mcpModal");
-      modal.classList.toggle("hidden");
-      if (!modal.classList.contains("hidden")) {
-        const fullUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, "") + "/mcp";
-        document.getElementById("mcpEndpointUrl").innerText = fullUrl;
-        loadMcpKeys();
-      }
-    }
-
-    function copyMcpUrl() {
-      const url = document.getElementById("mcpEndpointUrl").innerText;
-      navigator.clipboard.writeText(url).then(() => {
-        alert("Copied MCP Endpoint URL to clipboard!");
-      });
-    }
-
-    let lastCreatedKey = "";
-    function copyGeneratedKey() {
-      if (lastCreatedKey) {
-        navigator.clipboard.writeText(lastCreatedKey).then(() => {
-          alert("API key copied to clipboard!");
-        });
-      }
-    }
-
     async function loadMcpKeys() {
       const listEl = document.getElementById("mcpKeysList");
-      if (!listEl) return;
-      listEl.innerHTML = `<div class="text-slate-500 text-center py-3">Loading keys...</div>`;
+      const keySelect = document.getElementById("configKeySelect");
+
       try {
         const res = await authFetch(`${API_BASE_URL}/api/keys`);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to load keys");
-        }
+        if (!res.ok) throw new Error("Failed to load keys");
         const data = await res.json();
-        const keys = data.keys || [];
-        if (keys.length === 0) {
-          listEl.innerHTML = `<div class="text-slate-500 text-center py-3">No active keys. Generate one above to plug into Cursor or Slack!</div>`;
+        activeKeysList = data.keys || [];
+
+        // Update stats
+        document.getElementById("statKeysCount").innerText = activeKeysList.length;
+        document.getElementById("navKeyBadge").innerText = activeKeysList.length;
+
+        // Update Step 2 badge
+        const step2Badge = document.getElementById("step2StatusBadge");
+        if (step2Badge) {
+          if (activeKeysList.length > 0) {
+            step2Badge.className = "text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+            step2Badge.innerText = `✓ ${activeKeysList.length} Active`;
+          } else {
+            step2Badge.className = "text-[10px] px-2 py-0.5 rounded-full font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20";
+            step2Badge.innerText = "Needs Key";
+          }
+        }
+
+        // Populate dropdown in Client Config tab
+        if (keySelect) {
+          let options = [];
+          if (lastCreatedKey) {
+            options.push(`<option value="${lastCreatedKey}">Active Key (${lastCreatedKey.slice(0, 14)}...)</option>`);
+          }
+          activeKeysList.forEach(k => {
+            if (!lastCreatedKey || !lastCreatedKey.startsWith(k.key_prefix.replace(/\.\.\.$/, ''))) {
+              options.push(`<option value="${k.key_prefix}">${escapeHtml(k.name || 'Client')} (${k.key_prefix || '***'})</option>`);
+            }
+          });
+          if (options.length === 0) {
+            keySelect.innerHTML = `<option value="">(No keys yet — generate one in MCP Keys tab)</option>`;
+          } else {
+            keySelect.innerHTML = options.join("");
+          }
+        }
+
+        if (activeKeysList.length === 0) {
+          listEl.innerHTML = `<div class="text-slate-500 text-center py-6">No keys generated yet. Use the form above to create your first client token.</div>`;
           return;
         }
-        listEl.innerHTML = keys.map(k => `
-          <div class="flex items-center justify-between p-2.5 bg-surface-base border border-surface-border rounded-lg">
-            <div>
-              <div class="font-medium text-slate-200 text-xs flex items-center gap-1.5">
-                <span>${escapeHtml(k.name || "Agent")}</span>
-                <span class="text-[10px] px-1.5 py-0.2 rounded font-mono ${k.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}">${k.status}</span>
+
+        listEl.innerHTML = activeKeysList.map(k => `
+          <div class="flex items-center justify-between p-3.5 bg-surface-base border border-surface-border rounded-xl">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-cyan-600/20 text-cyan-400 flex items-center justify-center shrink-0">
+                <i data-lucide="key" class="w-4 h-4"></i>
               </div>
-              <div class="text-[10px] font-mono text-slate-400 mt-0.5">Prefix: ${k.key_prefix || '***'} | Calls: ${k.total_calls || 0}</div>
+              <div>
+                <div class="font-bold text-slate-200 text-xs flex items-center gap-2">
+                  <span>${escapeHtml(k.name || "Default Client")}</span>
+                  <span class="text-[9px] px-1.5 py-0.2 rounded font-mono ${k.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}">${k.status}</span>
+                </div>
+                <div class="text-[10px] font-mono text-slate-400 mt-0.5">
+                  Prefix: <span class="text-slate-300 font-bold">${escapeHtml(k.key_prefix || '***')}</span> • Total Calls: <span class="text-cyan-400 font-bold">${k.total_calls || 0}</span>
+                </div>
+              </div>
             </div>
-            ${k.status === 'active' ? `
-              <button onclick="handleRevokeKey('${k._id}')" class="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-red-500/10 transition">Revoke</button>
-            ` : `<span class="text-[10px] text-slate-500 italic">Revoked</span>`}
+
+            <div class="flex items-center gap-2">
+              ${k.status === 'active' ? `
+                <button onclick="handleRevokeKey('${k._id}')" class="text-xs text-red-400 hover:text-red-300 px-3 py-1 rounded-lg bg-red-950/20 border border-red-500/20 hover:bg-red-950/40 transition">
+                  Revoke
+                </button>
+              ` : `<span class="text-[10px] text-slate-500 italic">Revoked</span>`}
+            </div>
           </div>
         `).join("");
+        if (window.lucide) lucide.createIcons();
       } catch (err) {
-        listEl.innerHTML = `<div class="text-red-400 text-center py-3">Error loading keys: ${escapeHtml(err.message)}</div>`;
+        listEl.innerHTML = `<div class="text-red-400 text-center py-4">Error loading keys: ${escapeHtml(err.message)}</div>`;
       }
     }
 
-    async function handleGenerateKey() {
-      const nameInput = document.getElementById("newKeyNameInput");
-      const name = nameInput.value.trim() || "My Agent";
+    async function handleGenerateKeySubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById("newKeyNameInput");
+      const name = input.value.trim() || "Cursor Client";
+
       try {
         const res = await authFetch(`${API_BASE_URL}/api/keys/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name })
         });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to generate key");
-        }
         const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to generate key");
+
         lastCreatedKey = data.api_key;
-        
+        localStorage.setItem("CODEGRAPH_LAST_KEY", data.api_key);
         document.getElementById("newKeySecretDisplay").innerText = data.api_key;
-        document.getElementById("newKeyConfigSnippet").innerText = JSON.stringify(data.configs.cursor, null, 2);
+        document.getElementById("newKeyConfigSnippet").innerText = JSON.stringify(data.configs?.cursor || {}, null, 2);
         document.getElementById("newKeyBanner").classList.remove("hidden");
-        nameInput.value = "";
-        loadMcpKeys();
+        input.value = "";
+
+        showToast("New MCP key created successfully!");
+        await loadMcpKeys();
+        renderClientConfigSnippet();
+        updateQuickConfigSnippet();
         if (window.lucide) lucide.createIcons();
       } catch (err) {
-        alert("Error generating key: " + err.message);
+        showToast(err.message, "error");
       }
     }
 
+    function copyGeneratedKey() {
+      if (!lastCreatedKey) return;
+      navigator.clipboard.writeText(lastCreatedKey);
+      showToast("API Key copied to clipboard!");
+    }
+
     async function handleRevokeKey(keyId) {
-      if (!confirm("Are you sure you want to revoke this API key? Any agents using it will immediately lose access.")) return;
+      if (!confirm("Are you sure you want to revoke this MCP key? Connected clients will immediately lose access.")) return;
       try {
-        const res = await authFetch(`${API_BASE_URL}/api/keys/${keyId}`, {
-          method: "DELETE"
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to revoke key");
-        }
+        const res = await authFetch(`${API_BASE_URL}/api/keys/${keyId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Could not revoke key");
+        showToast("Key revoked successfully", "info");
         loadMcpKeys();
       } catch (err) {
-        alert("Error revoking key: " + err.message);
+        showToast(err.message, "error");
       }
     }
+
+    // -------------------------------------------------------------
+    // Client Configuration Generator (Step 3)
+    // -------------------------------------------------------------
+    function getActiveKeyString() {
+      const sel = document.getElementById("configKeySelect");
+      if (sel && sel.value && sel.value.startsWith("cg_live_")) {
+        return sel.value;
+      }
+      return lastCreatedKey || "YOUR_MCP_API_KEY";
+    }
+
+    function renderClientConfigSnippet() {
+      const client = document.getElementById("configClientSelect").value;
+      const keyString = getActiveKeyString();
+      const mcpUrl = `${API_BASE_URL}/mcp`;
+      const mcpSseUrl = `${API_BASE_URL}/mcp/sse`;
+
+      const pathText = document.getElementById("clientConfigPathText");
+      const fileNameLabel = document.getElementById("configFileNameLabel");
+      const codeEl = document.getElementById("configSnippetCode");
+      const instrEl = document.getElementById("clientSetupInstructions");
+
+      let configJson = "";
+      let filePath = "";
+      let instructions = "";
+
+      if (client === "cursor") {
+        filePath = ".cursor/mcp.json (in project root) OR Cursor Settings > Features > MCP";
+        fileNameLabel.innerText = ".cursor/mcp.json";
+        configJson = JSON.stringify({
+          "servers": {
+            "CodeGraph": {
+              "url": mcpUrl,
+              "headers": {
+                "Authorization": `Bearer ${keyString}`
+              }
+            }
+          }
+        }, null, 2);
+        instructions = `
+          <p><strong>1.</strong> Create or open <code class="text-indigo-300 font-mono">.cursor/mcp.json</code> in your repository root, or open <em>Cursor Settings &gt; Features &gt; MCP</em>.</p>
+          <p><strong>2.</strong> Paste the configuration above inside the <code class="text-indigo-300 font-mono">mcpServers</code> section.</p>
+          <p><strong>3.</strong> Restart Cursor or click the <em>Refresh</em> icon in the MCP tab.</p>
+          <p><strong>4.</strong> In Cursor Composer or Chat, mention <code class="text-emerald-400 font-mono">@CodeGraph</code> or ask <em>"Using CodeGraph, show me the blast radius of modifying user auth."</em></p>
+        `;
+      } else if (client === "claude") {
+        filePath = navigator.userAgent.includes("Windows") 
+          ? "%APPDATA%\\Claude\\claude_desktop_config.json"
+          : "~/Library/Application Support/Claude/claude_desktop_config.json";
+        fileNameLabel.innerText = "claude_desktop_config.json";
+        configJson = JSON.stringify({
+          "servers": {
+            "CodeGraph": {
+              "url": mcpUrl,
+              "headers": {
+                "Authorization": `Bearer ${keyString}`
+              }
+            }
+          }
+        }, null, 2);
+        instructions = `
+          <p><strong>1.</strong> Open Claude Desktop and navigate to <em>Settings &gt; Developer &gt; Edit Config</em>.</p>
+          <p><strong>2.</strong> Add the <code class="text-indigo-300 font-mono">CodeGraph</code> entry into your <code class="text-indigo-300 font-mono">mcpServers</code> dictionary.</p>
+          <p><strong>3.</strong> Save the file and restart Claude Desktop.</p>
+          <p><strong>4.</strong> Look for the hammer icon in Claude Desktop — the 14 CodeGraph tools are now active!</p>
+        `;
+      } else if (client === "config_mcp") {
+        filePath = "config.mcp or mcp.json (in project workspace root)";
+        fileNameLabel.innerText = "config.mcp";
+        configJson = JSON.stringify({
+          "servers": {
+            "CodeGraph": {
+              "url": mcpUrl,
+              "transport": "streamable_http",
+              "headers": {
+                "Authorization": `Bearer ${keyString}`
+              }
+            }
+          }
+        }, null, 2);
+        instructions = `
+          <p><strong>1.</strong> Place this file as <code class="text-indigo-300 font-mono">config.mcp</code> or <code class="text-indigo-300 font-mono">mcp.json</code> in your project or MCP client configuration directory.</p>
+          <p><strong>2.</strong> Connected MCP clients will discover and authenticate with this server using the bearer token.</p>
+          <p><strong>3.</strong> All 14 AST graph tools and indexed repositories will be instantly accessible.</p>
+        `;
+      } else if (client === "antigravity") {
+        filePath = "~/.gemini/antigravity/mcp_servers.json or Workspace settings";
+        fileNameLabel.innerText = "mcp_servers.json";
+        configJson = JSON.stringify({
+          "servers": {
+            "CodeGraph": {
+              "url": mcpUrl,
+              "headers": {
+                "Authorization": `Bearer ${keyString}`
+              }
+            }
+          }
+        }, null, 2);
+        instructions = `
+          <p><strong>1.</strong> Add this server entry to your Antigravity MCP server registry or workspace configuration.</p>
+          <p><strong>2.</strong> Antigravity can now inspect Python ASTs and trace blast radiuses deterministically.</p>
+        `;
+      } else if (client === "windsurf") {
+        filePath = "~/.codeium/windsurf/mcp_config.json";
+        fileNameLabel.innerText = "mcp_config.json";
+        configJson = JSON.stringify({
+          "servers": {
+            "CodeGraph": {
+              "serverUrl": mcpUrl,
+              "headers": {
+                "Authorization": `Bearer ${keyString}`
+              }
+            }
+          }
+        }, null, 2);
+        instructions = `
+          <p><strong>1.</strong> Open Windsurf Settings and edit <code class="text-indigo-300 font-mono">mcp_config.json</code>.</p>
+          <p><strong>2.</strong> Paste the configuration above into the <code class="text-indigo-300 font-mono">mcpServers</code> section.</p>
+          <p><strong>3.</strong> Cascade AI will now automatically query this server for symbol lookups and call graphs.</p>
+        `;
+      } else if (client === "cline") {
+        filePath = "cline_mcp_settings.json (VS Code Extensions)";
+        fileNameLabel.innerText = "cline_mcp_settings.json";
+        configJson = JSON.stringify({
+          "servers": {
+            "CodeGraph": {
+              "url": mcpUrl,
+              "headers": {
+                "Authorization": `Bearer ${keyString}`
+              }
+            }
+          }
+        }, null, 2);
+        instructions = `
+          <p><strong>1.</strong> Open the Cline or Roo-Code tab in VS Code and click the MCP Servers icon.</p>
+          <p><strong>2.</strong> Add the <code class="text-indigo-300 font-mono">CodeGraph</code> block to the configuration.</p>
+        `;
+      } else if (client === "curl") {
+        filePath = "Terminal / Bash cURL Command";
+        fileNameLabel.innerText = "streamable_http_test.sh";
+        configJson = `curl -X POST "${mcpUrl}" \\\n  -H "Authorization: Bearer ${keyString}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'`;
+        instructions = `
+          <p><strong>1.</strong> Test the Streamable HTTP endpoint directly from terminal.</p>
+          <p><strong>2.</strong> The server will return the full list of 14 MCP tools along with schemas.</p>
+        `;
+      }
+
+      pathText.innerText = filePath;
+      codeEl.innerText = configJson;
+      codeEl.className = client === "curl" ? "language-bash hljs text-xs" : "language-json hljs text-xs";
+      instrEl.innerHTML = instructions;
+
+      if (window.hljs) hljs.highlightElement(codeEl);
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function updateQuickConfigSnippet() {
+      const client = document.getElementById("quickClientSelect")?.value || "cursor";
+      const keyString = getActiveKeyString();
+      const mcpUrl = `${API_BASE_URL}/mcp`;
+      const quickCode = document.getElementById("quickConfigCode");
+      if (!quickCode) return;
+
+      let serverObj = {
+        "url": mcpUrl,
+        "headers": {
+          "Authorization": `Bearer ${keyString}`
+        }
+      };
+      if (client === "windsurf") {
+        serverObj = {
+          "serverUrl": mcpUrl,
+          "headers": {
+            "Authorization": `Bearer ${keyString}`
+          }
+        };
+      } else if (client === "config_mcp") {
+        serverObj = {
+          "url": mcpUrl,
+          "transport": "streamable_http",
+          "headers": {
+            "Authorization": `Bearer ${keyString}`
+          }
+        };
+      }
+
+      const snippet = {
+        "servers": {
+          "CodeGraph": serverObj
+        }
+      };
+      quickCode.innerText = JSON.stringify(snippet, null, 2);
+      if (window.hljs) hljs.highlightElement(quickCode);
+    }
+
+    function copyQuickSnippet() {
+      const quickCode = document.getElementById("quickConfigCode");
+      navigator.clipboard.writeText(quickCode.innerText);
+      showToast("Configuration JSON copied to clipboard!");
+    }
+
+    function copyConfigSnippet() {
+      const codeEl = document.getElementById("configSnippetCode");
+      navigator.clipboard.writeText(codeEl.innerText);
+      showToast("Client configuration copied to clipboard!");
+    }
+
+    function copyConfigPath() {
+      const pathText = document.getElementById("clientConfigPathText");
+      navigator.clipboard.writeText(pathText.innerText);
+      showToast("Config path copied to clipboard!");
+    }
+
+    function downloadConfigFile() {
+      const codeEl = document.getElementById("configSnippetCode");
+      const blob = new Blob([codeEl.innerText], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = document.getElementById("configFileNameLabel").innerText || "mcp_config.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Config downloaded!");
+    }
+
+    function copyHeaderEndpoint() {
+      navigator.clipboard.writeText(`${API_BASE_URL}/mcp`);
+      showToast("MCP Endpoint URL copied!");
+    }
+
+    // -------------------------------------------------------------
+    // MCP Tools Catalog
+    // -------------------------------------------------------------
+    const TOOLS_CATALOG = [
+      {
+        name: "index_repository",
+        badge: "Graph Parser",
+        desc: "Ingests and parses any Git repository or local folder into an AST call graph in MongoDB.",
+        args: "repo_root: str, repo_id: str?, branch: str?",
+        example: "index_repository('https://github.com/pallets/flask', repo_id='flask')"
+      },
+      {
+        name: "list_repositories",
+        badge: "Discovery",
+        desc: "Enumerates all indexed repositories currently available in MongoDB with symbol totals.",
+        args: "None",
+        example: "list_repositories()"
+      },
+      {
+        name: "get_repo_filemap",
+        badge: "Architecture",
+        desc: "Returns a structured map of all files and their top-level symbol signatures for high-level reasoning.",
+        args: "repo_id: str",
+        example: "get_repo_filemap('fastapi_fastapi')"
+      },
+      {
+        name: "search_symbols",
+        badge: "AST Query",
+        desc: "Deterministic exact and fuzzy AST lookup for functions, classes, and method signatures.",
+        args: "query: str, repo_id: str, limit: int = 10",
+        example: "search_symbols('create_access_token', 'fastapi_fastapi')"
+      },
+      {
+        name: "semantic_search_symbols",
+        badge: "Vector Embeddings",
+        desc: "Locates code symbols matching natural language engineering intent using cosine similarity embeddings.",
+        args: "query: str, repo_id: str, limit: int = 10, min_score: float = 0.25",
+        example: "semantic_search_symbols('JWT token verification and expiry check', 'fastapi_fastapi')"
+      },
+      {
+        name: "resolve_intent_context",
+        badge: "Multi-Hop Search",
+        desc: "Combines semantic symbol lookup with 1-hop graph dependency expansion to assemble full refactor context.",
+        args: "intent: str, repo_id: str, max_hops: int = 1, top_k: int = 3",
+        example: "resolve_intent_context('Refactor database connection pooling', 'fastapi_fastapi')"
+      },
+      {
+        name: "get_symbol_details",
+        badge: "AST Details",
+        desc: "Retrieves complete AST definition, docstrings, exact line numbers, and clean source code.",
+        args: "symbol_id: str, repo_id: str",
+        example: "get_symbol_details('app.auth:verify_password', 'fastapi_fastapi')"
+      },
+      {
+        name: "get_upstream_blast_radius",
+        badge: "Impact Analysis",
+        desc: "Traces all callers, consumers, and upstream dependents to determine what breaks if this symbol is modified.",
+        args: "symbol_id: str, repo_id: str, max_depth: int = 3",
+        example: "get_upstream_blast_radius('app.models:User', 'fastapi_fastapi')"
+      },
+      {
+        name: "get_downstream_dependencies",
+        badge: "Dependency Tracing",
+        desc: "Traverses downstream calls and internal dependencies that a target function or class relies upon.",
+        args: "symbol_id: str, repo_id: str, max_depth: int = 2",
+        example: "get_downstream_dependencies('app.server:lifespan', 'fastapi_fastapi')"
+      },
+      {
+        name: "get_dependency_subgraph_code",
+        badge: "Subgraph Extractor",
+        desc: "Extracts an isolated, runnable slice of source code containing a symbol and its connected dependency graph.",
+        args: "symbol_id: str, repo_id: str, max_depth: int = 2, direction: str = 'both'",
+        example: "get_dependency_subgraph_code('app.tools:run_query', 'fastapi_fastapi')"
+      },
+      {
+        name: "read_file_content",
+        badge: "File System",
+        desc: "Safely reads repository source files from disk with optional start and end line ranges.",
+        args: "file_path: str, repo_id: str",
+        example: "read_file_content('app/server.py', 'fastapi_fastapi')"
+      },
+      {
+        name: "search_codebase_text",
+        badge: "Regex Grep",
+        desc: "Fast literal and regular expression search across all repository files.",
+        args: "pattern: str, repo_id: str, limit: int = 25",
+        example: "search_codebase_text('MONGODB_URI', 'fastapi_fastapi')"
+      },
+      {
+        name: "find_files_by_name",
+        badge: "File Search",
+        desc: "Locates files across the codebase matching a filename or glob pattern.",
+        args: "pattern: str, repo_id: str",
+        example: "find_files_by_name('*.env*', 'fastapi_fastapi')"
+      },
+      {
+        name: "query_graph",
+        badge: "CPG Aggregation",
+        desc: "Executes deterministic MongoDB aggregation pipelines directly against the repository's AST collection.",
+        args: "repo_id: str, pipeline_json: str",
+        example: "query_graph('fastapi_fastapi', '[{\"$match\": {\"type\": \"class\"}}]')"
+      }
+    ];
+
+    function renderToolsCatalog(filter = "") {
+      const container = document.getElementById("toolsGridContainer");
+      if (!container) return;
+      const lower = filter.toLowerCase().trim();
+
+      const filtered = TOOLS_CATALOG.filter(t => 
+        !lower || t.name.toLowerCase().includes(lower) || t.desc.toLowerCase().includes(lower) || t.badge.toLowerCase().includes(lower)
+      );
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div class="col-span-full text-slate-500 text-center py-6">No tools match '${escapeHtml(filter)}'</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(t => `
+        <div class="p-4 rounded-xl bg-surface-base border border-surface-border hover:border-surface-accentBorder transition flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <span class="font-mono text-xs font-bold text-white flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-indigo-400"></i>
+                ${t.name}
+              </span>
+              <span class="text-[10px] px-2 py-0.2 rounded-full font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${t.badge}</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed mb-3">${t.desc}</p>
+          </div>
+
+          <div class="pt-2 border-t border-surface-border/60 space-y-1">
+            <div class="text-[10px] text-slate-500 font-mono truncate">Args: <span class="text-slate-400">${t.args}</span></div>
+            <div class="text-[10px] text-slate-500 font-mono truncate">Example: <code class="text-emerald-400">${t.example}</code></div>
+          </div>
+        </div>
+      `).join("");
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function filterTools(val) {
+      renderToolsCatalog(val);
+    }
+
+    // -------------------------------------------------------------
+    // Server Configuration Modal & Health Check
+    // -------------------------------------------------------------
+    function toggleServerConfig() {
+      const modal = document.getElementById("serverConfigModal");
+      const input = document.getElementById("serverBaseUrlInput");
+      input.value = API_BASE_URL;
+      modal.classList.toggle("hidden");
+    }
+
+    function saveServerConfig() {
+      const input = document.getElementById("serverBaseUrlInput");
+      const val = input.value.trim().replace(/\/+$/, "");
+      if (val) {
+        API_BASE_URL = val;
+        localStorage.setItem("CODEGRAPH_API_URL", val);
+        document.getElementById("headerEndpointUrl").innerText = `${val}/mcp`;
+        renderClientConfigSnippet();
+        updateQuickConfigSnippet();
+        checkServerHealth();
+        toggleServerConfig();
+        showToast("Backend URL updated!");
+      }
+    }
+
+    async function checkServerHealth() {
+      const dot = document.getElementById("authStatusDot");
+      const text = document.getElementById("authStatusText");
+      try {
+        const res = await fetch(`${API_BASE_URL}/health`);
+        if (res.ok) {
+          if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-dot";
+          if (text) text.innerText = "MCP Server: Online";
+        } else {
+          if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-500";
+          if (text) text.innerText = "MCP Server: Degraded";
+        }
+      } catch (err) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-red-500";
+        if (text) text.innerText = "MCP Server: Offline";
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Initializer
+    // -------------------------------------------------------------
+    window.addEventListener("DOMContentLoaded", async () => {
+      checkServerHealth();
+      const token = localStorage.getItem("CODEGRAPH_JWT");
+      const cachedUser = localStorage.getItem("CODEGRAPH_USER");
+
+      if (token && cachedUser) {
+        try {
+          const user = JSON.parse(cachedUser);
+          enterConsole(user);
+        } catch {
+          handleLogout();
+        }
+      } else {
+        document.getElementById("authView").classList.remove("hidden");
+      }
+
+      if (window.lucide) lucide.createIcons();
+    });
   </script>
 </body>
 </html>
