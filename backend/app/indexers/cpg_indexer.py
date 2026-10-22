@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Set, Optional
 from pymongo import MongoClient, UpdateOne
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from repo_manager import sanitize_repo_id
@@ -63,7 +64,7 @@ class RepoGraphIndexer:
             if not any(part.startswith(".") or part in ("venv", "__pycache__", "node_modules", "tests") for part in p.parts)
         ]
 
-        print(f"[Pass 1] Discovering symbols across {len(py_files)} files...")
+        print(f"[Pass 1] Concurrently parsing {len(py_files)} files...")
         self._report_progress(
             phase="parsing",
             total_files=len(py_files),
@@ -72,89 +73,110 @@ class RepoGraphIndexer:
             current_file=None,
             percent=1 if py_files else 20,
         )
+
         parsed_trees: Dict[Path, tuple] = {}
         parsed_files = 0
 
-        for file_path in py_files:
-            self._report_progress(
-                phase="parsing",
-                total_files=len(py_files),
-                files_completed=0,
-                parsed_files=parsed_files,
-                current_file=str(file_path.relative_to(self.repo_path)),
-                percent=5 + int(15 * parsed_files / max(len(py_files), 1)),
-            )
+        # Concurrently read and parse AST trees using ThreadPoolExecutor (safe & low memory overhead)
+        def parse_single_file(file_path: Path):
             try:
                 source = file_path.read_text(encoding="utf-8")
                 tree = ast.parse(source, filename=str(file_path))
-                parsed_trees[file_path] = (tree, source)
-                self._pass_one_discover(file_path, tree)
+                return file_path, tree, source, None
             except Exception as e:
-                print(f"Skipping {file_path}: {e}")
-            parsed_files += 1
-            self._report_progress(
-                phase="parsing",
-                total_files=len(py_files),
-                files_completed=0,
-                parsed_files=parsed_files,
-                current_file=None,
-                percent=5 + int(15 * parsed_files / max(len(py_files), 1)),
-            )
+                return file_path, None, None, e
 
-        print(f"[Pass 2 & 3] Extracting and incrementally writing documents for {len(self.known_symbols)} symbols...")
+        max_workers = min(32, (os.cpu_count() or 1) * 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {executor.submit(parse_single_file, fp): fp for fp in py_files}
+            
+            for future in as_completed(future_to_file):
+                file_path, tree, source, error = future.result()
+                parsed_files += 1
+                if error:
+                    print(f"Skipping {file_path}: {error}")
+                else:
+                    parsed_trees[file_path] = (tree, source)
+                
+                if parsed_files % 10 == 0 or parsed_files == len(py_files):
+                    self._report_progress(
+                        phase="parsing",
+                        total_files=len(py_files),
+                        files_completed=0,
+                        parsed_files=parsed_files,
+                        current_file=str(file_path.relative_to(self.repo_path)),
+                        percent=5 + int(15 * parsed_files / max(len(py_files), 1)),
+                    )
 
-        batch_size = 100
-        batch_ops = []
-        total_indexed = 0
+        # Pass 1 Discovery (sequential over pre-parsed trees for safety and correctness)
+        for file_path, (tree, source) in parsed_trees.items():
+            self._pass_one_discover(file_path, tree)
+
+        print(f"[Pass 2 & 3] Extracting symbols and generating batched embeddings for {len(self.known_symbols)} symbols...")
+
+        all_docs = []
         files_completed = 0
-        embeddings_generated = 0
 
         for file_path, (tree, source) in parsed_trees.items():
-            self._report_progress(
-                phase="embedding",
-                total_files=len(py_files),
-                files_completed=files_completed,
-                parsed_files=parsed_files,
-                current_file=str(file_path.relative_to(self.repo_path)),
-                percent=20 + int(75 * files_completed / max(len(py_files), 1)),
-                symbols_indexed=total_indexed,
-            )
             docs = self._pass_two_extract(file_path, tree, source)
-
-            for doc in docs:
-                if generate_embeddings and build_symbol_embedding_text:
-                    try:
-                        text = build_symbol_embedding_text(doc)
-                        emb = generate_embeddings([text], batch_size=1)
-                        if emb:
-                            doc["embedding"] = emb[0]
-                            embeddings_generated += 1
-                    except Exception as e:
-                        print(f"Embedding failed for {doc['_id']}: {e}")
-                        pass # Skip embedding for this doc if it fails/runs out of memory
-
-                batch_ops.append(
-                    UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
-                )
-
-                if len(batch_ops) >= batch_size:
-                    self.symbols_col.bulk_write(batch_ops)
-                    total_indexed += len(batch_ops)
-                    batch_ops = []
-
+            all_docs.extend(docs)
             files_completed += 1
             self._report_progress(
                 phase="embedding",
                 total_files=len(py_files),
                 files_completed=files_completed,
                 parsed_files=parsed_files,
-                current_file=None,
-                percent=20 + int(75 * files_completed / max(len(py_files), 1)),
-                symbols_indexed=total_indexed,
-                embeddings_generated=embeddings_generated,
+                current_file=str(file_path.relative_to(self.repo_path)),
+                percent=20 + int(30 * files_completed / max(len(py_files), 1)),
             )
 
-        # Flush remaining items
+        # Batch Embedding Generation
+        embeddings_generated = 0
+        if generate_embeddings and build_symbol_embedding_text and all_docs:
+            print(f"Generating embeddings in bulk for {len(all_docs)} documents...")
+            texts_to_embed = []
+            doc_indices_to_embed = []
+
+            for idx, doc in enumerate(all_docs):
+                try:
+                    text = build_symbol_embedding_text(doc)
+                    if text:
+                        texts_to_embed.append(text)
+                        doc_indices_to_embed.append(idx)
+                except Exception as e:
+                    print(f"Failed building embedding text for {doc.get('_id')}: {e}")
+
+            # Process in safe batches (e.g. batch_size = 32)
+            embedding_batch_size = 32
+            for i in range(0, len(texts_to_embed), embedding_batch_size):
+                batch_texts = texts_to_embed[i:i + embedding_batch_size]
+                batch_indices = doc_indices_to_embed[i:i + embedding_batch_size]
+                
+                try:
+                    embs = generate_embeddings(batch_texts, batch_size=len(batch_texts))
+                    if embs:
+                        for doc_idx, emb in zip(batch_indices, embs):
+                            if emb is not None:
+                                all_docs[doc_idx]["embedding"] = emb
+                                embeddings_generated += 1
+                except Exception as e:
+                    print(f"Batch embedding generation failed: {e}")
+
+        # Bulk write all documents to MongoDB
+        print(f"Writing {len(all_docs)} documents to MongoDB via bulk write...")
+        batch_size = 100
+        batch_ops = []
+        total_indexed = 0
+
+        for doc in all_docs:
+            batch_ops.append(
+                UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
+            )
+            if len(batch_ops) >= batch_size:
+                self.symbols_col.bulk_write(batch_ops)
+                total_indexed += len(batch_ops)
+                batch_ops = []
+
         if batch_ops:
             self.symbols_col.bulk_write(batch_ops)
             total_indexed += len(batch_ops)
@@ -166,6 +188,7 @@ class RepoGraphIndexer:
             self.symbols_col.create_index("name")
             self.symbols_col.create_index("type")
             print(f"Successfully indexed {total_indexed} symbols into collection {self.repo_id}_symbols.")
+
         self._report_progress(
             phase="completed",
             total_files=len(py_files),
@@ -180,41 +203,31 @@ class RepoGraphIndexer:
     def _pass_one_discover(self, file_path: Path, tree: ast.AST):
         mod_name = self._file_to_module(file_path)
         self.file_imports[mod_name] = {}
-        
-        # Register the module itself as a known symbol
         self.known_symbols.add(mod_name)
 
         for node in ast.iter_child_nodes(tree):
-            # Track imports: `import x.y as z` or `from x import y as z`
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local_name = alias.asname or alias.name
                     self.file_imports[mod_name][local_name] = alias.name
             elif isinstance(node, ast.ImportFrom):
                 base_mod = node.module or ""
-                # Handle relative imports (e.g., `from . import utils` or `from ..models import User`)
                 if node.level > 0:
                     parent_parts = mod_name.split(".")[:-node.level]
                     base_mod = ".".join(parent_parts + ([base_mod] if base_mod else []))
                 for alias in node.names:
                     local_name = alias.asname or alias.name
                     self.file_imports[mod_name][local_name] = f"{base_mod}:{alias.name}"
-
-            # Track top-level functions
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 fqn = f"{mod_name}:{node.name}"
                 self.known_symbols.add(fqn)
                 self.file_imports[mod_name][node.name] = fqn
-
-            # Track top-level variables/constants (e.g., mcp = FastMCP())
             elif isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         fqn = f"{mod_name}:{target.id}"
                         self.known_symbols.add(fqn)
                         self.file_imports[mod_name][target.id] = fqn
-
-            # Track classes and their methods
             elif isinstance(node, ast.ClassDef):
                 class_fqn = f"{mod_name}:{node.name}"
                 self.known_symbols.add(class_fqn)
@@ -233,13 +246,9 @@ class RepoGraphIndexer:
         lines = source.splitlines()
         docs = []
 
-        # Extract variable assignments and type hints for context scoping
         self._extract_variable_types(tree, mod_name)
-
-        # 1. Create a Root Module Node (captures top-level execution like main.py)
         docs.append(self._build_module_doc(tree, mod_name, rel_path, lines))
 
-        # 2. Extract Functions and Classes
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 docs.append(self._build_symbol_doc(
@@ -248,8 +257,6 @@ class RepoGraphIndexer:
             elif isinstance(node, ast.ClassDef):
                 class_fqn = f"{mod_name}:{node.name}"
                 bases = [self._resolve_name(ast.unparse(b), mod_name, None) for b in node.bases]
-                
-                # Capture all method FQNs to link the class to its children structurally
                 method_fqns = [f"{class_fqn}.{item.name}" for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
                 
                 docs.append({
@@ -269,7 +276,6 @@ class RepoGraphIndexer:
                     "imports": list(self.file_imports[mod_name].values())
                 })
 
-                # Method documents
                 for item in node.body:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         method_fqn = f"{class_fqn}.{item.name}"
@@ -288,10 +294,10 @@ class RepoGraphIndexer:
                             "file_path": rel_path,
                             "start_line": node.lineno,
                             "end_line": node.end_lineno,
-                            "signature": ast.unparse(node).split('\n')[0], # Store the assignment line
+                            "signature": ast.unparse(node).split('\n')[0],
                             "docstring": "",
                             "source_code": "\n".join(lines[node.lineno - 1 : node.end_lineno]),
-                            "calls": [], # Variables don't have structural children
+                            "calls": [],
                             "is_hub": False,
                             "out_degree": 0,
                             "inherits": [],
@@ -300,12 +306,10 @@ class RepoGraphIndexer:
         return docs
 
     def _build_module_doc(self, tree: ast.AST, mod_name: str, rel_path: str, lines: List[str]) -> Dict:
-        """Parses the top-level execution scope of a file to capture module-level dependencies."""
         calls = set()
         local_scope_types = {}
 
         for node in tree.body:
-            # Skip inner contents of classes and functions, we only want global scope
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 for child in ast.walk(node):
                     if isinstance(child, ast.Assign) and isinstance(child.value, ast.Call):
@@ -327,7 +331,6 @@ class RepoGraphIndexer:
                                 if target_method in self.known_symbols:
                                     calls.add(target_method)
                                     continue
-                                    
                             resolved = self._resolve_name(raw_call, mod_name, None)
                             if resolved:
                                 calls.add(resolved)
@@ -337,7 +340,6 @@ class RepoGraphIndexer:
                             if isinstance(target, ast.Name):
                                 calls.add(f"{mod_name}:{target.id}")
             
-            # Special case: Catch decorators on top-level functions (e.g., @mcp.tool())
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 for decorator in node.decorator_list:
                     for child in ast.walk(decorator):
@@ -370,11 +372,8 @@ class RepoGraphIndexer:
         }
 
     def _extract_variable_types(self, tree: ast.AST, mod_name: str):
-        """Scans the AST to build a dictionary mapping local variable names to their Class FQNs."""
         self.file_variable_types[mod_name] = {}
-        
         for node in ast.walk(tree):
-            # 1. Track Instantiations: e.g., graph_tools = CodeGraphTools(db)
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
                 func_name = self._extract_call_name(node.value.func)
                 if func_name:
@@ -383,8 +382,6 @@ class RepoGraphIndexer:
                         for target in node.targets:
                             if isinstance(target, ast.Name):
                                 self.file_variable_types[mod_name][target.id] = resolved_class
-
-            # 2. Track Argument Type Hints: e.g., def execute(tools: CodeGraphTools):
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for arg in node.args.args:
                     if arg.annotation:
@@ -395,12 +392,10 @@ class RepoGraphIndexer:
                                 self.file_variable_types[mod_name][arg.arg] = resolved_type
 
     def _extract_annotation_name(self, node: ast.AST) -> Optional[str]:
-        """Safely extracts the string name from type annotation nodes."""
         if isinstance(node, ast.Name):
             return node.id
         elif isinstance(node, ast.Attribute):
             return node.attr
-        # Basic support for generic wrappers like Optional[CodeGraphTools]
         elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Name):
             return node.slice.id
         return None
@@ -410,7 +405,6 @@ class RepoGraphIndexer:
         local_scope_types = {}
 
         for child in ast.walk(node):
-            # Track local assignments (e.g., my_var = SomeClass())
             if isinstance(child, ast.Assign) and isinstance(child.value, ast.Call):
                 func_name = self._extract_call_name(child.value.func)
                 if func_name:
@@ -419,42 +413,35 @@ class RepoGraphIndexer:
                         for target in child.targets:
                             if isinstance(target, ast.Name):
                                 local_scope_types[target.id] = resolved_type
-                        calls.add(resolved_type) # Add the initialization as a dependency
-            
-            # Track method calls on those local variables (e.g., my_var.do_something())
+                        calls.add(resolved_type)
             elif isinstance(child, ast.Call):
                 raw_call = self._extract_call_name(child.func)
                 if raw_call:
                     parts = raw_call.split('.')
-                    # If the base variable was initialized locally, resolve its method
                     if len(parts) > 1 and parts[0] in local_scope_types:
                         target_method = f"{local_scope_types[parts[0]]}.{parts[1]}"
                         if target_method in self.known_symbols:
                             calls.add(target_method)
                             continue
-                            
                     resolved = self._resolve_name(raw_call, mod_name, class_fqn)
                     if resolved:
                         calls.add(resolved)
 
-        # CPG Data Flow: Safely extract arguments
         arguments = []
         if hasattr(node, 'args') and hasattr(node.args, 'args'):
             arguments = [arg.arg for arg in node.args.args]
 
-        # CPG Data Flow: Safely extract return type
         return_type = "Any"
         if getattr(node, "returns", None):
             return_type = self._extract_annotation_name(node.returns) or "Any"
 
-        # Safely parse signature to prevent the ClassDef error
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             args_str = ast.unparse(node.args)
             ret_str = f" -> {ast.unparse(node.returns)}" if getattr(node, "returns", None) else ""
             prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
             signature = f"{prefix} {node.name}({args_str}){ret_str}:"
         else:
-            signature = f"class {getattr(node, 'name', 'Unknown')}:" # Fallback for classes
+            signature = f"class {getattr(node, 'name', 'Unknown')}:"
 
         unique_calls = sorted(list(calls))
         
@@ -473,33 +460,23 @@ class RepoGraphIndexer:
             "out_degree": len(unique_calls),
             "inherits": [],
             "imports": list(self.file_imports.get(mod_name, {}).values()),
-            "arguments": arguments,                        # NEW: CPG argument tracking
-            "return_type": return_type,                    # NEW: CPG return type tracking
-            "external_io": self._flag_external_io(node)    # NEW: CPG I/O awareness
+            "arguments": arguments,
+            "return_type": return_type,
+            "external_io": self._flag_external_io(node)
         }
 
     def _flag_external_io(self, node: ast.AST) -> List[str]:
-        """
-        Scans the AST to detect if a function performs network/HTTP or Database/SQL operations.
-        Returns a list of flags, e.g., ["HTTP", "DATABASE"].
-        """
         io_flags = set()
         for child in ast.walk(node):
             if isinstance(child, ast.Call):
                 call_name = self._extract_call_name(child.func)
                 if not call_name:
                     continue
-                
                 call_name_lower = call_name.lower()
-                
-                # Check for HTTP/Network signatures
                 if any(kw in call_name_lower for kw in ['requests.', 'httpx.', 'session.get', 'session.post', 'aiohttp', 'urllib']):
                     io_flags.add("HTTP")
-                    
-                # Check for Database/SQL signatures
                 if any(kw in call_name_lower for kw in ['.execute', 'cursor.', 'session.query', 'session.commit', 'mongoclient', 'db.', 'pymongo']):
                     io_flags.add("DATABASE")
-                    
         return sorted(list(io_flags))
     
     def _extract_call_name(self, func_node: ast.AST) -> Optional[str]:
@@ -516,13 +493,11 @@ class RepoGraphIndexer:
         local_map = self.file_imports.get(mod_name, {})
         var_types = self.file_variable_types.get(mod_name, {})
 
-        # Case 1: `self.method()` inside a class
         if head == "self" and class_fqn and len(parts) > 1:
             candidate = f"{class_fqn}.{parts[1]}"
             if candidate in self.known_symbols:
                 return candidate
 
-        # Case 2: Direct match in current file's import/symbol table
         if head in local_map:
             mapped = local_map[head]
             if len(parts) == 1:
@@ -535,7 +510,6 @@ class RepoGraphIndexer:
                     if candidate in self.known_symbols:
                         return candidate
 
-        # Case 3: Instance Variable tracking via Type Hints / Assignments
         if len(parts) > 1:
             method_name = parts[-1]
             if head in var_types:
@@ -544,7 +518,6 @@ class RepoGraphIndexer:
                 if target_fqn in self.known_symbols:
                     return target_fqn
 
-        # Case 4: Suffix fallback (Handles import path mismatches AND unknown types)
         leaf_name = parts[-1]
         matches = [s for s in self.known_symbols if s.endswith(f".{leaf_name}") or s.endswith(f":{leaf_name}")]
         if len(matches) == 1:
