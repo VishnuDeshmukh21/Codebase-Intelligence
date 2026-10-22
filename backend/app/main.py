@@ -146,6 +146,31 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Opti
         if collection_name in db.list_collection_names():
             existing_count = db[collection_name].estimated_document_count()
             if existing_count:
+                missing_embeddings = db[collection_name].count_documents(
+                    {
+                        "$or": [
+                            {"embedding": {"$exists": False}},
+                            {"embedding": None},
+                        ]
+                    }
+                )
+                if missing_embeddings:
+                    indexer = RepoGraphIndexer(
+                        repo_path=".",
+                        repo_id=actual_repo_id,
+                        mongo_uri=db_uri,
+                    )
+                    try:
+                        result = indexer.generate_missing_embeddings()
+                    except Exception as exc:
+                        return f"Embedding resume failed for '{repo_root}': {exc}"
+                    finally:
+                        indexer.client.close()
+                    return (
+                        f"Resumed embeddings for '{repo_root}' under repo_id "
+                        f"'{actual_repo_id}': {result['embedding_symbols_completed']} of "
+                        f"{result['embedding_symbols_total']} symbols now have vectors."
+                    )
                 return (
                     f"Repository '{repo_root}' is already indexed under repo_id: "
                     f"'{actual_repo_id}' ({existing_count} symbols). "
@@ -195,31 +220,32 @@ def index_repository(repo_root: str, repo_id: Optional[str] = None, branch: Opti
 
     collection_name = f"{actual_repo_id}_symbols"
 
-    # Check if already indexed
-    if collection_name in db.list_collection_names() and db[collection_name].estimated_document_count() > 0:
-        count = db[collection_name].estimated_document_count()
-        return (
-            f"Repository '{repo_root}' is already indexed under repo_id: '{actual_repo_id}' ({count} symbols). "
-            f"Proceed directly to search_symbols or get_repo_filemap."
-        )
-
     try:
         indexer = RepoGraphIndexer(repo_path=resolved_local_path, repo_id=actual_repo_id, mongo_uri=db_uri)
-        indexer.index_repository()
-        count = db[collection_name].estimated_document_count()
-        record_repo_metadata(
-            db=db,
-            repo_id=actual_repo_id,
-            repo_path=resolved_local_path,
-            repo_url=normalized_url,
-            is_remote=is_remote,
-            symbol_count=count,
-            branch=clone_details.get("branch"),
-            commit_hash=clone_details.get("commit_hash"),
+        existing_symbols = (
+            collection_name in db.list_collection_names()
+            and db[collection_name].estimated_document_count() > 0
         )
+        if not existing_symbols:
+            indexer.index_repository()
+        embedding_result = indexer.generate_missing_embeddings()
+        count = db[collection_name].estimated_document_count()
+        if not existing_symbols:
+            record_repo_metadata(
+                db=db,
+                repo_id=actual_repo_id,
+                repo_path=resolved_local_path,
+                repo_url=normalized_url,
+                is_remote=is_remote,
+                symbol_count=count,
+                branch=clone_details.get("branch"),
+                commit_hash=clone_details.get("commit_hash"),
+            )
         return (
-            f"Successfully indexed '{repo_root}' ({count} symbols) under repo_id: '{actual_repo_id}'. "
-            f"You can now query symbols, blast radius, and dependencies."
+            f"{'Repository already parsed' if existing_symbols else 'Successfully parsed'} "
+            f"'{repo_root}' ({count} symbols) under repo_id: '{actual_repo_id}'. "
+            f"{embedding_result['embedding_symbols_completed']} symbols now have embeddings. "
+            "You can now query symbols, blast radius, and dependencies."
         )
     except Exception as exc:
         return f"Indexing failed for '{repo_root}': {exc}"

@@ -1,12 +1,3 @@
-try:
-    from app.embedding_service import build_symbol_embedding_text, generate_embeddings
-except ImportError:
-    try:
-        from embedding_service import build_symbol_embedding_text, generate_embeddings
-    except ImportError:
-        build_symbol_embedding_text = None
-        generate_embeddings = None
-
 import ast
 import os
 from pathlib import Path
@@ -112,7 +103,7 @@ class RepoGraphIndexer:
         for file_path, (tree, source) in parsed_trees.items():
             self._pass_one_discover(file_path, tree)
 
-        print(f"[Pass 2 & 3] Extracting symbols and generating batched embeddings for {len(self.known_symbols)} symbols...")
+        print(f"[Pass 2] Extracting symbols for {len(self.known_symbols)} symbols...")
 
         all_docs = []
         files_completed = 0
@@ -122,93 +113,34 @@ class RepoGraphIndexer:
             all_docs.extend(docs)
             files_completed += 1
             self._report_progress(
-                phase="embedding",
+                phase="parsing",
                 total_files=len(py_files),
                 files_completed=files_completed,
                 parsed_files=parsed_files,
                 current_file=str(file_path.relative_to(self.repo_path)),
-                percent=20 + int(30 * files_completed / max(len(py_files), 1)),
+                percent=5 + int(15 * files_completed / max(len(py_files), 1)),
             )
 
-        # Batch Embedding Generation
-        embeddings_generated = 0
-        if generate_embeddings and build_symbol_embedding_text and all_docs:
-            print(f"Generating embeddings in bulk for {len(all_docs)} documents...")
-            texts_to_embed = []
-            doc_indices_to_embed = []
-
-            for idx, doc in enumerate(all_docs):
-                try:
-                    text = build_symbol_embedding_text(doc)
-                    if text:
-                        texts_to_embed.append(text)
-                        doc_indices_to_embed.append(idx)
-                except Exception as e:
-                    print(f"Failed building embedding text for {doc.get('_id')}: {e}")
-
-        # Batch Embedding Generation & Incremental Writing (Memory-Safe for Render Free Tier)
-        embeddings_generated = 0
-        embedding_batch_size = 16  # Small batch size to keep RAM flat
-        
-        print(f"Generating embeddings and writing {len(all_docs)} documents in batches...")
-        
         batch_ops = []
         total_indexed = 0
         db_batch_size = 100
-
-        # Process documents in chunks to prevent memory spikes
-        for i in range(0, len(all_docs), embedding_batch_size):
-            chunk = all_docs[i : i + embedding_batch_size]
-            
-            # Prepare texts for this chunk only
-            chunk_texts = []
-            for doc in chunk:
-                try:
-                    text = build_symbol_embedding_text(doc)
-                    chunk_texts.append(text if text else "")
-                except Exception:
-                    chunk_texts.append("")
-
-            # Generate embeddings for this small chunk
-            if generate_embeddings and build_symbol_embedding_text:
-                try:
-                    embs = generate_embeddings(chunk_texts, batch_size=embedding_batch_size)
-                    if embs:
-                        for doc_obj, emb in zip(chunk, embs):
-                            if emb is not None:
-                                doc_obj["embedding"] = emb
-                                embeddings_generated += 1
-                except Exception as e:
-                    print(f"Embedding chunk failed at index {i}: {e}")
-
-            # Queue for MongoDB bulk write
-            for doc in chunk:
-                batch_ops.append(
-                    UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
+        for doc in all_docs:
+            batch_ops.append(
+                UpdateOne(
+                    {"_id": doc["_id"]},
+                    {"$set": doc, "$unset": {"embedding": ""}},
+                    upsert=True,
                 )
-                if len(batch_ops) >= db_batch_size:
-                    self.symbols_col.bulk_write(batch_ops)
-                    total_indexed += len(batch_ops)
-                    batch_ops = []
-
-            # Optional progress update per chunk
-            self._report_progress(
-                phase="embedding",
-                total_files=len(py_files),
-                files_completed=files_completed,
-                parsed_files=parsed_files,
-                current_file=None,
-                percent=20 + int(75 * min(i + embedding_batch_size, len(all_docs)) / max(len(all_docs), 1)),
-                symbols_indexed=total_indexed,
-                embeddings_generated=embeddings_generated,
             )
+            if len(batch_ops) >= db_batch_size:
+                self.symbols_col.bulk_write(batch_ops)
+                total_indexed += len(batch_ops)
+                batch_ops = []
 
-        # Flush any remaining items to MongoDB
         if batch_ops:
             self.symbols_col.bulk_write(batch_ops)
             total_indexed += len(batch_ops)
 
-        # Create indexes safely after writing
         if total_indexed > 0:
             self.symbols_col.create_index("calls")
             self.symbols_col.create_index("file_path")
@@ -217,15 +149,125 @@ class RepoGraphIndexer:
             print(f"Successfully indexed {total_indexed} symbols into collection {self.repo_id}_symbols.")
 
         self._report_progress(
-            phase="completed",
+            phase="parsed",
             total_files=len(py_files),
             files_completed=files_completed,
             parsed_files=parsed_files,
             current_file=None,
-            percent=100,
+            percent=20,
             symbols_indexed=total_indexed,
-            embeddings_generated=embeddings_generated,
         )
+
+    def generate_missing_embeddings(
+        self,
+        batch_size: int = 16,
+        should_stop: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, int | bool]:
+        """Embed MongoDB symbols without vectors, persisting each batch for safe resumption."""
+        if batch_size < 1:
+            raise ValueError("Embedding batch_size must be greater than zero.")
+
+        try:
+            from app.embedding_service import build_symbol_embedding_text, generate_embeddings
+        except ImportError:
+            from embedding_service import build_symbol_embedding_text, generate_embeddings
+
+        missing_filter = {
+            "$or": [
+                {"embedding": {"$exists": False}},
+                {"embedding": None},
+            ]
+        }
+        total_symbols = self.symbols_col.count_documents({})
+        initially_missing = self.symbols_col.count_documents(missing_filter)
+        already_embedded = total_symbols - initially_missing
+        completed = already_embedded
+        processed_this_run = 0
+        all_files = set(self.symbols_col.distinct("file_path"))
+        missing_files = sorted(
+            self.symbols_col.distinct("file_path", missing_filter),
+            key=lambda value: str(value or ""),
+        )
+        files_completed = len(all_files) - len(missing_files)
+
+        def embed_batch(documents: List[Dict], file_path: str) -> None:
+            nonlocal completed, processed_this_run
+            if not documents:
+                return
+
+            texts = [build_symbol_embedding_text(doc) for doc in documents]
+            vectors = generate_embeddings(texts, batch_size=batch_size)
+            if len(vectors) != len(documents) or any(not vector for vector in vectors):
+                raise RuntimeError(
+                    f"Embedding service returned {len(vectors)} vectors for "
+                    f"{len(documents)} symbols."
+                )
+
+            operations = [
+                UpdateOne(
+                    {"_id": doc["_id"], **missing_filter},
+                    {"$set": {"embedding": vector}},
+                )
+                for doc, vector in zip(documents, vectors)
+            ]
+            result = self.symbols_col.bulk_write(operations, ordered=False)
+            written = result.modified_count
+            completed += written
+            processed_this_run += written
+            self._report_progress(
+                phase="embedding",
+                symbols_indexed=total_symbols,
+                embeddings_generated=completed,
+                embedding_symbols_completed=completed,
+                embedding_symbols_total=total_symbols,
+                embedding_files_completed=files_completed,
+                embedding_files_total=len(all_files),
+                current_file=file_path,
+                percent=20 + int(75 * completed / max(total_symbols, 1)),
+            )
+
+        stopped = False
+        for file_path in missing_files:
+            if should_stop and should_stop():
+                stopped = True
+                break
+            file_filter = {
+                "file_path": file_path,
+                **missing_filter,
+            }
+            batch = []
+            for doc in self.symbols_col.find(file_filter):
+                batch.append(doc)
+                if len(batch) == batch_size:
+                    if should_stop and should_stop():
+                        stopped = True
+                        break
+                    embed_batch(batch, file_path)
+                    batch = []
+                    if should_stop and should_stop():
+                        stopped = True
+                        break
+
+            if stopped:
+                break
+            if batch:
+                if should_stop and should_stop():
+                    stopped = True
+                    break
+                embed_batch(batch, file_path)
+            files_completed += 1
+
+        remaining = self.symbols_col.count_documents(missing_filter)
+        stopped = bool(remaining and stopped)
+        return {
+            "embeddings_generated": processed_this_run,
+            "embedding_symbols_completed": total_symbols - remaining,
+            "embedding_symbols_total": total_symbols,
+            "embedding_files_completed": files_completed,
+            "embedding_files_total": len(all_files),
+            "remaining": remaining,
+            "stopped": stopped,
+        }
 
     def _pass_one_discover(self, file_path: Path, tree: ast.AST):
         mod_name = self._file_to_module(file_path)

@@ -183,8 +183,12 @@ python -m pytest tests/test_mcp_server.py
 
 ## Optional indexing microservice
 
-Indexing runs as a background job and reports Python-file, embedding, and symbol
-progress to the cockpit. By default, the main backend performs indexing itself,
+Indexing runs as two tracked stages: parsing writes symbols to MongoDB, then
+embedding queries only symbols without vectors and writes each small batch
+immediately. Jobs report `parse_status` and `embedding_status` independently.
+The cockpit can stop embedding after the in-flight batch and resume it later;
+resumption re-queries MongoDB, so completed vectors are not generated again.
+By default, the main backend performs indexing itself,
 so local development remains a single-service setup. To offload public Git
 repositories, deploy the same backend image a second time on Render with this
 start command:
@@ -207,3 +211,9 @@ run in the main backend because the indexing service cannot access the main
 server's local files. The service requires the shared MongoDB database to make
 generated AST records and embeddings available to search immediately. Do not
 expose the indexing service key in browser configuration.
+
+For API clients, stop a running embedding stage with
+`POST /api/repos/index-jobs/{job_id}/stop` and resume a paused or failed stage
+with `POST /api/repos/index-jobs/{job_id}/embeddings`. The indexing service
+offers the equivalent endpoints under `/api/index/jobs/{job_id}` and requires
+its service key.

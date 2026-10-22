@@ -1,12 +1,3 @@
-try:
-    from app.embedding_service import build_symbol_embedding_text, generate_embeddings
-except ImportError:
-    try:
-        from embedding_service import build_symbol_embedding_text, generate_embeddings
-    except ImportError:
-        build_symbol_embedding_text = None
-        generate_embeddings = None
-
 import ast
 import os
 from pathlib import Path
@@ -67,17 +58,6 @@ class RepoGraphIndexer:
         for file_path, (tree, source) in parsed_trees.items():
             docs = self._pass_two_extract(file_path, tree, source)
             all_docs.extend(docs)
-
-        if generate_embeddings and build_symbol_embedding_text and all_docs:
-            print(f"[Pass 3] Generating local vector embeddings for {len(all_docs)} symbols...")
-            try:
-                texts = [build_symbol_embedding_text(doc) for doc in all_docs]
-                embeddings = generate_embeddings(texts, batch_size=64)
-                for doc, emb in zip(all_docs, embeddings):
-                    doc["embedding"] = emb
-                print(f"Generated {len(embeddings)} semantic vectors.")
-            except Exception as e:
-                print(f"Warning: Vector embedding generation failed, continuing: {e}")
 
         bulk_ops = [
             UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)

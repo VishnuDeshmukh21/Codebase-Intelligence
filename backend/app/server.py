@@ -57,7 +57,12 @@ from auth import (
     verify_password,
 )
 from graph_tools import CodeGraphTools
-from indexing_jobs import create_index_job, public_job, run_index_job
+from indexing_jobs import (
+    create_index_job,
+    public_job,
+    run_embedding_job,
+    run_index_job,
+)
 from llm_service.factory import LLMFactory
 from memory.mongo_checkpointer import build_mongo_checkpointer
 from repo_manager import (
@@ -736,6 +741,111 @@ def get_index_job(
     if job.get("owner_id") != owner_id:
         raise HTTPException(status_code=404, detail="Indexing job not found.")
     return public_job(job)
+
+
+def _proxy_index_job_action(
+    job_id: str,
+    request: Request,
+    action: str,
+    owner_id: str,
+) -> Dict[str, Any]:
+    service_url = os.environ.get("INDEXING_SERVICE_URL", "").rstrip("/")
+    service_key = os.environ.get("INDEXING_SERVICE_API_KEY")
+    if not service_url or not service_key:
+        raise HTTPException(status_code=503, detail="Remote indexing service is not configured.")
+    remote_job_id = job_id.removeprefix("remote-")
+    remote_job = request.app.state.db["indexing_jobs"].find_one(
+        {"_id": remote_job_id},
+        {"owner_id": 1},
+    )
+    if not remote_job or remote_job.get("owner_id") != owner_id:
+        raise HTTPException(status_code=404, detail="Indexing job not found.")
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(
+                f"{service_url}/api/index/jobs/{remote_job_id}/{action}",
+                headers={"X-Indexing-Service-Key": service_key},
+            )
+            response.raise_for_status()
+        result = response.json()
+        result["job_id"] = job_id
+        result["service"] = "remote"
+        return result
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail=exc.response.text or f"Could not {action} remote indexing job.",
+        ) from exc
+    except httpx.HTTPError as exc:
+        log.error("server.indexing_job_action_unavailable", action=action, error=str(exc))
+        raise HTTPException(status_code=502, detail="Could not reach the indexing service.") from exc
+
+
+@app.post("/api/repos/index-jobs/{job_id}/stop")
+def stop_index_job(
+    job_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    owner_id = str(current_user.get("user_id") or current_user.get("sub") or "")
+    if job_id.startswith("remote-"):
+        return _proxy_index_job_action(job_id, request, "stop", owner_id)
+
+    jobs = request.app.state.db["indexing_jobs"]
+    result = jobs.update_one(
+        {
+            "_id": job_id,
+            "owner_id": owner_id,
+            "status": "running",
+            "phase": "embedding",
+        },
+        {"$set": {"stop_requested": True}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=409, detail="No running embedding stage to stop.")
+    return public_job(jobs.find_one({"_id": job_id}))
+
+
+@app.post("/api/repos/index-jobs/{job_id}/embeddings", status_code=202)
+def resume_index_embeddings(
+    job_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    owner_id = str(current_user.get("user_id") or current_user.get("sub") or "")
+    if job_id.startswith("remote-"):
+        return _proxy_index_job_action(job_id, request, "embeddings", owner_id)
+
+    jobs = request.app.state.db["indexing_jobs"]
+    result = jobs.update_one(
+        {
+            "_id": job_id,
+            "owner_id": owner_id,
+            "status": {"$in": ["paused", "failed"]},
+            "parse_status": "completed",
+        },
+        {
+            "$set": {
+                "status": "queued",
+                "phase": "embedding_queued",
+                "embedding_status": "queued",
+                "stop_requested": False,
+            },
+            "$unset": {"error": ""},
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Only a paused or failed embedding stage can be resumed.",
+        )
+    background_tasks.add_task(
+        run_embedding_job,
+        job_id,
+        request.app.state.mongo_uri,
+    )
+    return public_job(jobs.find_one({"_id": job_id}))
 
 
 @app.get("/api/repos/{repo_id}/filemap")

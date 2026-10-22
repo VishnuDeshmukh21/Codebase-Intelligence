@@ -11,7 +11,12 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Re
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
-from app.indexing_jobs import create_index_job, public_job, run_index_job
+from app.indexing_jobs import (
+    create_index_job,
+    public_job,
+    run_embedding_job,
+    run_index_job,
+)
 from app.repo_manager import is_git_url
 
 log = structlog.get_logger()
@@ -96,3 +101,58 @@ def get_index_job(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail="Indexing job not found.")
     return public_job(job)
+
+
+@app.post(
+    "/api/index/jobs/{job_id}/stop",
+    dependencies=[Depends(verify_service_key)],
+)
+def stop_index_job(job_id: str, request: Request):
+    jobs = request.app.state.db["indexing_jobs"]
+    result = jobs.update_one(
+        {"_id": job_id, "status": "running", "phase": "embedding"},
+        {"$set": {"stop_requested": True}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=409, detail="No running embedding stage to stop.")
+    return public_job(jobs.find_one({"_id": job_id}))
+
+
+@app.post(
+    "/api/index/jobs/{job_id}/embeddings",
+    status_code=202,
+    dependencies=[Depends(verify_service_key)],
+)
+def resume_index_embeddings(
+    job_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    jobs = request.app.state.db["indexing_jobs"]
+    result = jobs.update_one(
+        {
+            "_id": job_id,
+            "status": {"$in": ["paused", "failed"]},
+            "parse_status": "completed",
+        },
+        {
+            "$set": {
+                "status": "queued",
+                "phase": "embedding_queued",
+                "embedding_status": "queued",
+                "stop_requested": False,
+            },
+            "$unset": {"error": ""},
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Only a paused or failed embedding stage can be resumed.",
+        )
+    background_tasks.add_task(
+        run_embedding_job,
+        job_id,
+        os.environ.get("MONGODB_URI", "mongodb://localhost:27017"),
+    )
+    return public_job(jobs.find_one({"_id": job_id}))

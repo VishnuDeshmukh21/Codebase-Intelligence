@@ -384,7 +384,7 @@
                   <i data-lucide="folder-git-2" class="w-4 h-4 text-indigo-400"></i> Index Your Repository
                 </h4>
                 <p class="text-xs text-slate-400 leading-relaxed mb-4">
-                  Add any public Git repository URL or local filesystem path. The parser extracts AST nodes, functions, classes, imports, and builds vector embeddings.
+                  Parsing writes AST symbols to MongoDB first; vector embeddings are generated afterward in resumable batches.
                 </p>
               </div>
               <button onclick="switchMainTab('repos')" class="w-full py-2 bg-surface-base hover:bg-indigo-600/20 text-indigo-300 border border-surface-border hover:border-indigo-500/30 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5">
@@ -587,6 +587,14 @@
               </div>
               <div class="text-[10px] text-slate-400 truncate font-mono">
                 Current file: <span id="indexCurrentFile" class="text-cyan-300">Waiting...</span>
+              </div>
+              <div class="flex gap-2">
+                <button id="stopEmbeddingsBtn" onclick="stopCurrentIndexJob()" class="hidden px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs font-semibold">
+                  Stop after current batch
+                </button>
+                <button id="resumeEmbeddingsBtn" onclick="resumeCurrentIndexJob()" class="hidden px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-xs font-semibold">
+                  Resume missing embeddings
+                </button>
               </div>
             </div>
           </div>
@@ -1169,6 +1177,27 @@
       showToast(`Repo ID '${id}' copied to clipboard!`);
     }
 
+    let activeIndexJobId = null;
+
+    async function pollIndexJob(jobId, job) {
+      while (!["completed", "failed", "paused"].includes(job.status)) {
+        updateIndexProgress(job);
+        await new Promise(r => setTimeout(r, 900));
+        const pollRes = await authFetch(`${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(jobId)}`);
+        job = await pollRes.json();
+        if (!pollRes.ok) throw new Error(job.detail || "Could not poll indexing job");
+      }
+      updateIndexProgress(job);
+      return job;
+    }
+
+    function showPausedIndexJob(job) {
+      const statusDiv = document.getElementById("indexStatus");
+      statusDiv.className = "text-xs p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300";
+      statusDiv.innerText = `Embedding paused after ${job.embedding_symbols_completed || 0} of ${job.embedding_symbols_total || 0} symbols. Resume to process only the remaining symbols.`;
+      statusDiv.classList.remove("hidden");
+    }
+
     // Start Indexing Job
     async function startIndexing() {
       const sourceInput = document.getElementById("indexRepoPath");
@@ -1211,16 +1240,13 @@
         const started = await res.json();
         if (!res.ok) throw new Error(started.detail || "Could not start indexing");
 
-        let job = started;
-        while (job.status !== "completed" && job.status !== "failed") {
-          updateIndexProgress(job);
-          await new Promise(r => setTimeout(r, 900));
-          const pollRes = await authFetch(`${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(started.job_id)}`);
-          job = await pollRes.json();
-          if (!pollRes.ok) throw new Error(job.detail || "Could not poll indexing job");
+        activeIndexJobId = started.job_id;
+        localStorage.setItem("activeIndexJobId", activeIndexJobId);
+        const job = await pollIndexJob(activeIndexJobId, started);
+        if (job.status === "paused") {
+          showPausedIndexJob(job);
+          return;
         }
-
-        updateIndexProgress(job);
         if (job.status === "failed") throw new Error(job.error || "Indexing failed");
 
         const result = job.result || {};
@@ -1230,6 +1256,8 @@
 
         showToast(`Repository '${result.repo_id || repoId}' indexed successfully!`);
         await loadRepositories();
+        activeIndexJobId = null;
+        localStorage.removeItem("activeIndexJobId");
       } catch (err) {
         statusDiv.className = "text-xs p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300";
         statusDiv.innerHTML = `✗ Indexing error: ${escapeHtml(err.message)}`;
@@ -1242,12 +1270,55 @@
       }
     }
 
+    async function stopCurrentIndexJob() {
+      if (!activeIndexJobId) return;
+      try {
+        const response = await authFetch(`${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(activeIndexJobId)}/stop`, { method: "POST" });
+        const job = await response.json();
+        if (!response.ok) throw new Error(job.detail || "Could not stop embeddings");
+        showToast("Stop requested; the current embedding batch will finish first.");
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function resumeCurrentIndexJob() {
+      if (!activeIndexJobId) return;
+      const statusDiv = document.getElementById("indexStatus");
+      try {
+        const response = await authFetch(`${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(activeIndexJobId)}/embeddings`, { method: "POST" });
+        let job = await response.json();
+        if (!response.ok) throw new Error(job.detail || "Could not resume embeddings");
+        statusDiv.classList.add("hidden");
+        job = await pollIndexJob(activeIndexJobId, job);
+        if (job.status === "paused") {
+          showPausedIndexJob(job);
+          return;
+        }
+        if (job.status === "failed") throw new Error(job.error || "Embedding generation failed");
+        statusDiv.className = "text-xs p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300";
+        statusDiv.innerText = `Successfully indexed ${job.symbols_indexed || 0} symbols and generated ${job.embeddings_generated || 0} embeddings.`;
+        statusDiv.classList.remove("hidden");
+        activeIndexJobId = null;
+        localStorage.removeItem("activeIndexJobId");
+        await loadRepositories();
+      } catch (err) {
+        statusDiv.className = "text-xs p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300";
+        statusDiv.innerText = `Indexing error: ${err.message}`;
+        statusDiv.classList.remove("hidden");
+        showToast(err.message, "error");
+      }
+    }
+
     function updateIndexProgress(job) {
       const phases = {
         queued: "Queued in background",
         preparing: "Preparing & cloning repository",
         parsing: "Parsing AST in Python modules",
+        parsed: "Parsing complete",
+        embedding_queued: "Embedding stage queued",
         embedding: "Generating vector embeddings",
+        embedding_paused: "Embedding paused",
         completed: "Indexing complete",
         failed: "Indexing failed",
       };
@@ -1255,11 +1326,33 @@
       document.getElementById("indexPhase").innerText = phases[job.phase] || "Indexing codebase...";
       document.getElementById("indexPercent").innerText = `${percent}%`;
       document.getElementById("indexProgressBar").style.width = `${percent}%`;
-      document.getElementById("indexFilesFound").innerText = Number(job.total_files) || 0;
-      document.getElementById("indexFilesCompleted").innerText = Number(job.files_completed) || 0;
+      const embeddingPhase = ["embedding", "embedding_paused", "completed"].includes(job.phase) && Number(job.embedding_files_total) > 0;
+      document.getElementById("indexFilesFound").innerText = Number(embeddingPhase ? job.embedding_files_total : job.total_files) || 0;
+      document.getElementById("indexFilesCompleted").innerText = Number(embeddingPhase ? job.embedding_files_completed : job.files_completed) || 0;
       document.getElementById("indexSymbolsCount").innerText = Number(job.symbols_indexed) || 0;
       document.getElementById("indexEmbeddingsCount").innerText = Number(job.embeddings_generated) || 0;
       document.getElementById("indexCurrentFile").innerText = job.current_file || (job.status === "completed" ? "Done" : "Waiting...");
+      document.getElementById("stopEmbeddingsBtn").classList.toggle("hidden", !(job.status === "running" && job.phase === "embedding"));
+      document.getElementById("resumeEmbeddingsBtn").classList.toggle("hidden", !(job.status === "paused" || (job.status === "failed" && job.parse_status === "completed")));
+    }
+
+    async function restoreActiveIndexJob() {
+      activeIndexJobId = localStorage.getItem("activeIndexJobId");
+      if (!activeIndexJobId) return;
+      try {
+        const response = await authFetch(`${API_BASE_URL}/api/repos/index-jobs/${encodeURIComponent(activeIndexJobId)}`);
+        const job = await response.json();
+        if (!response.ok) throw new Error(job.detail || "Could not restore indexing progress");
+        document.getElementById("indexProgress").classList.remove("hidden");
+        updateIndexProgress(job);
+        if (job.status === "paused") showPausedIndexJob(job);
+        if (job.status === "completed" || (job.status === "failed" && job.parse_status !== "completed")) {
+          activeIndexJobId = null;
+          localStorage.removeItem("activeIndexJobId");
+        }
+      } catch (err) {
+        showToast(err.message, "error");
+      }
     }
 
     // Filemap Modal
@@ -1884,6 +1977,7 @@
         try {
           const user = JSON.parse(cachedUser);
           enterConsole(user);
+          restoreActiveIndexJob();
         } catch {
           handleLogout();
         }
