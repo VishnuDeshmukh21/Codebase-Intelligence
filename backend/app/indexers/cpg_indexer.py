@@ -146,37 +146,64 @@ class RepoGraphIndexer:
                 except Exception as e:
                     print(f"Failed building embedding text for {doc.get('_id')}: {e}")
 
-            # Process in safe batches (e.g. batch_size = 32)
-            embedding_batch_size = 32
-            for i in range(0, len(texts_to_embed), embedding_batch_size):
-                batch_texts = texts_to_embed[i:i + embedding_batch_size]
-                batch_indices = doc_indices_to_embed[i:i + embedding_batch_size]
-                
-                try:
-                    embs = generate_embeddings(batch_texts, batch_size=len(batch_texts))
-                    if embs:
-                        for doc_idx, emb in zip(batch_indices, embs):
-                            if emb is not None:
-                                all_docs[doc_idx]["embedding"] = emb
-                                embeddings_generated += 1
-                except Exception as e:
-                    print(f"Batch embedding generation failed: {e}")
-
-        # Bulk write all documents to MongoDB
-        print(f"Writing {len(all_docs)} documents to MongoDB via bulk write...")
-        batch_size = 100
+        # Batch Embedding Generation & Incremental Writing (Memory-Safe for Render Free Tier)
+        embeddings_generated = 0
+        embedding_batch_size = 16  # Small batch size to keep RAM flat
+        
+        print(f"Generating embeddings and writing {len(all_docs)} documents in batches...")
+        
         batch_ops = []
         total_indexed = 0
+        db_batch_size = 100
 
-        for doc in all_docs:
-            batch_ops.append(
-                UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
+        # Process documents in chunks to prevent memory spikes
+        for i in range(0, len(all_docs), embedding_batch_size):
+            chunk = all_docs[i : i + embedding_batch_size]
+            
+            # Prepare texts for this chunk only
+            chunk_texts = []
+            for doc in chunk:
+                try:
+                    text = build_symbol_embedding_text(doc)
+                    chunk_texts.append(text if text else "")
+                except Exception:
+                    chunk_texts.append("")
+
+            # Generate embeddings for this small chunk
+            if generate_embeddings and build_symbol_embedding_text:
+                try:
+                    embs = generate_embeddings(chunk_texts, batch_size=embedding_batch_size)
+                    if embs:
+                        for doc_obj, emb in zip(chunk, embs):
+                            if emb is not None:
+                                doc_obj["embedding"] = emb
+                                embeddings_generated += 1
+                except Exception as e:
+                    print(f"Embedding chunk failed at index {i}: {e}")
+
+            # Queue for MongoDB bulk write
+            for doc in chunk:
+                batch_ops.append(
+                    UpdateOne({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
+                )
+                if len(batch_ops) >= db_batch_size:
+                    self.symbols_col.bulk_write(batch_ops)
+                    total_indexed += len(batch_ops)
+                    batch_ops = []
+
+            # Optional progress update per chunk
+            self._report_progress(
+                phase="embedding",
+                total_files=len(py_files),
+                files_completed=files_completed,
+                parsed_files=parsed_files,
+                current_file=None,
+                percent=20 + int(75 * min(i + embedding_batch_size, len(all_docs)) / max(len(all_docs), 1)),
+                symbols_indexed=total_indexed,
+                embeddings_generated=embeddings_generated,
             )
-            if len(batch_ops) >= batch_size:
-                self.symbols_col.bulk_write(batch_ops)
-                total_indexed += len(batch_ops)
-                batch_ops = []
 
+        # Flush any remaining items to MongoDB
         if batch_ops:
             self.symbols_col.bulk_write(batch_ops)
             total_indexed += len(batch_ops)
